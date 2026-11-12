@@ -1623,7 +1623,7 @@ export default function App() {
               Configurar JARVIS y voz
             </button>
             <small className="gate-hint">
-              Túnel SSH: <code>ssh -N -L 8642:127.0.0.1:8642 jarvis</code>
+              Hermes local: <code>http://127.0.0.1:8643/v1</code>
             </small>
             {!micSupported ? <small>Micrófono no disponible; el chat de texto sí funciona.</small> : null}
           </div>

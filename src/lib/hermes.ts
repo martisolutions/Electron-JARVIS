@@ -42,7 +42,7 @@ export class HermesClient {
       response = await fetch(`${this.baseUrl}/models`, { headers: this.headers() });
     } catch {
       throw new HermesError(
-        "No se pudo conectar con JARVIS. Comprueba el túnel SSH (8642) y que el cerebro esté activo.",
+        "No se pudo conectar con JARVIS. Verifica que Hermes local esté activo en http://127.0.0.1:8643/v1.",
       );
     }
 
@@ -86,7 +86,7 @@ export class HermesClient {
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") throw error;
       throw new HermesError(
-        "No se pudo conectar con JARVIS. Comprueba el túnel SSH (8642) y que el cerebro esté activo.",
+        "No se pudo conectar con JARVIS. Verifica que Hermes local esté activo en http://127.0.0.1:8643/v1.",
       );
     }
 
@@ -257,7 +257,7 @@ export class HermesClient {
         }),
       });
     } catch {
-      throw new HermesError("No se pudo conectar con JARVIS. Comprueba el túnel SSH y el cerebro.");
+      throw new HermesError("No se pudo conectar con JARVIS. Verifica que Hermes local esté activo en http://127.0.0.1:8643/v1.");
     }
 
     if (!response.ok) {

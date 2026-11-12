@@ -64,11 +64,10 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            placeholder="http://127.0.0.1:8642/v1"
+            placeholder="http://127.0.0.1:8643/v1"
           />
           <small>
-            El cerebro de JARVIS (Hermes) escucha en 127.0.0.1:8642. En Windows se accede con el túnel SSH:
-            <code> ssh -N -L 8642:127.0.0.1:8642 jarvis</code>
+            El cerebro de JARVIS (Hermes) corre en local y escucha en <code>127.0.0.1:8643</code>. Ajusta la URL si usas otro puerto.
           </small>
         </label>
 
@@ -176,8 +175,7 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
         <div className="settings-note">
           <strong>Red</strong>
           <p>
-            El cerebro de JARVIS (Hermes) está en <code>192.168.1.3</code>. Para no exponer su API, el túnel SSH publica
-            <code> 127.0.0.1:8642</code> en este equipo. Mantén el túnel activo mientras uses la app.
+            El cerebro de JARVIS (Hermes) se ejecuta en este equipo en <code>127.0.0.1:8643</code>. No se necesita túnel SSH.
           </p>
         </div>
       </aside>

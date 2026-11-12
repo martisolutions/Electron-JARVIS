@@ -56,10 +56,10 @@ export function friendlyError(message: string): string {
     return "La API key de ElevenLabs no es válida. Usa el secreto completo que empieza por sk_ (no el ID de la key).";
   }
   if (/no se pudo conectar con (hermes|jarvis)|túnel ssh|failed to fetch|networkerror|load failed/i.test(message)) {
-    return "No se pudo conectar con JARVIS. Verifica el túnel SSH (8642) y que el cerebro esté activo.";
+    return "No se pudo conectar con JARVIS. Verifica que Hermes local esté activo en http://127.0.0.1:8643/v1.";
   }
   if (/(hermes|jarvis) respondió 404|not found/i.test(message)) {
-    return "JARVIS no encontró el endpoint. La URL debe terminar en /v1 (http://127.0.0.1:8642/v1).";
+    return "JARVIS no encontró el endpoint. La URL debe terminar en /v1 (http://127.0.0.1:8643/v1).";
   }
   if (/api key de (hermes|jarvis)|api_server_key/i.test(message)) {
     return "La API key de JARVIS (Hermes) no es válida. Debe coincidir con platforms.api_server.extra.key.";
