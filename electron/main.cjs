@@ -18,9 +18,9 @@ function execFileAsync(file, args, options) {
   });
 }
 
-function gatewayHealthy() {
+function gatewayHealthy(port = 8643) {
   return new Promise((resolve) => {
-    const request = http.get("http://127.0.0.1:8643/health", (response) => {
+    const request = http.get(`http://127.0.0.1:${port}/health`, (response) => {
       response.resume();
       resolve(response.statusCode === 200);
     });
@@ -32,14 +32,117 @@ function gatewayHealthy() {
   });
 }
 
-async function stopAllHermesAgents() {
-  const powershell = path.join(
+function powershellPath() {
+  return path.join(
     process.env.SystemRoot || "C:\\Windows",
     "System32",
     "WindowsPowerShell",
     "v1.0",
     "powershell.exe",
   );
+}
+
+const HERMES_DETECT_SCRIPT = String.raw`
+$ErrorActionPreference = 'Stop'
+$candidates = @(
+  (Join-Path $env:LOCALAPPDATA 'hermes\config.yaml'),
+  (Join-Path $env:APPDATA 'hermes\config.yaml'),
+  (Join-Path $env:USERPROFILE '.hermes\config.yaml')
+)
+$cfg = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $cfg) {
+  [pscustomobject]@{ found = $false; error = 'No se encontró config.yaml de Hermes.' } | ConvertTo-Json -Compress
+  exit 0
+}
+$lines = Get-Content -LiteralPath $cfg
+$platforms = New-Object System.Collections.Generic.List[string]
+$inPlatforms = $false
+foreach ($line in $lines) {
+  if ($line -match '^platforms:\s*$') { $inPlatforms = $true; continue }
+  if ($inPlatforms) {
+    if ($line -match '^\S') { break }
+    $platforms.Add($line)
+  }
+}
+$api = New-Object System.Collections.Generic.List[string]
+$inApi = $false
+foreach ($line in $platforms) {
+  if ($line -match '^\s{2}api_server:\s*$') { $inApi = $true; continue }
+  if ($inApi) {
+    if ($line -match '^\s{2}\S') { break }
+    $api.Add($line)
+  }
+}
+if (-not $inApi) {
+  [pscustomobject]@{ found = $false; configPath = $cfg; error = 'No se encontró platforms.api_server en config.yaml.' } | ConvertTo-Json -Compress
+  exit 0
+}
+function CleanValue([string]$value) {
+  $v = ($value -split '\s+#', 2)[0].Trim()
+  if ($v.Length -ge 2 -and (($v.StartsWith([char]34) -and $v.EndsWith([char]34)) -or ($v.StartsWith([char]39) -and $v.EndsWith([char]39)))) {
+    $v = $v.Substring(1, $v.Length - 2)
+  }
+  return $v
+}
+$enabledLine = $api | Where-Object { $_ -match '^\s{4}enabled:\s*(.+)$' } | Select-Object -First 1
+$enabled = if ($enabledLine) { CleanValue (($enabledLine -replace '^\s{4}enabled:\s*', '')) } else { '' }
+$keyLine = $api | Where-Object { $_ -match '^\s{6}key:\s*(.*)$' } | Select-Object -First 1
+$key = if ($keyLine) { CleanValue (($keyLine -replace '^\s{6}key:\s*', '')) } else { '' }
+$portLine = $api | Where-Object { $_ -match '^\s{6}port:\s*(.+)$' } | Select-Object -First 1
+$port = if ($portLine) { CleanValue (($portLine -replace '^\s{6}port:\s*', '')) } else { '8643' }
+if (($key -eq '') -or ($key -match '^\$\{')) {
+  $envPath = Join-Path (Split-Path -Parent $cfg) '.env'
+  if (Test-Path -LiteralPath $envPath) {
+    $envLine = Get-Content -LiteralPath $envPath | Where-Object { $_ -match '^\s*(?:export\s+)?API_SERVER_KEY\s*=' } | Select-Object -First 1
+    if ($envLine) { $key = CleanValue (($envLine -split '=', 2)[1]) }
+  }
+}
+if ($key -match '^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$') {
+  $key = [Environment]::GetEnvironmentVariable($Matches[1])
+}
+[pscustomobject]@{
+  found = $true
+  configPath = $cfg
+  enabled = $enabled
+  port = $port
+  key = $key
+  url = ('http://127.0.0.1:' + $port + '/v1')
+} | ConvertTo-Json -Compress
+`;
+
+async function detectLocalHermes() {
+  if (process.platform !== "win32") {
+    return { found: false, error: "La detección automática está disponible en Windows." };
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      powershellPath(),
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", HERMES_DETECT_SCRIPT],
+      { timeout: 15000, windowsHide: true, maxBuffer: 1024 * 64 },
+    );
+    const payload = JSON.parse(String(stdout).trim());
+    if (!payload.found) return payload;
+    const port = Number(payload.port) || 8643;
+    const enabled = String(payload.enabled).toLowerCase() !== "false";
+    const gateway = enabled ? await gatewayHealthy(port) : false;
+    return {
+      ...payload,
+      key: typeof payload.key === "string" ? payload.key.trim() : "",
+      port,
+      enabled,
+      gateway,
+      url: `http://127.0.0.1:${port}/v1`,
+    };
+  } catch (error) {
+    return {
+      found: false,
+      error: `No se pudo leer la configuración de Hermes: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function stopAllHermesAgents() {
+  const powershell = powershellPath();
   const script = [
     "$ErrorActionPreference='SilentlyContinue'",
     "Stop-ScheduledTask -TaskName 'Hermes_Gateway'",
@@ -68,6 +171,7 @@ async function stopAllHermesAgents() {
 }
 
 ipcMain.handle("hermes:stop-all", () => stopAllHermesAgents());
+ipcMain.handle("hermes:detect-local", () => detectLocalHermes());
 
 
 ipcMain.handle("hermes:read-log", async (_event, filePath) => {

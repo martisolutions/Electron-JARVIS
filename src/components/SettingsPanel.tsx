@@ -10,6 +10,22 @@ type Props = {
   onTestVoice: () => void;
 };
 
+type LocalHermes = {
+  found: boolean;
+  url?: string;
+  key?: string;
+  port?: number;
+  enabled?: boolean;
+  gateway?: boolean;
+  error?: string;
+};
+
+type DetectBridge = {
+  jarvisDesktop?: {
+    detectHermes?: () => Promise<LocalHermes>;
+  };
+};
+
 const STATUS_LABEL: Record<ConnectionState, string> = {
   idle: "Sin conexión",
   connecting: "Conectando",
@@ -27,6 +43,39 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
   const [model, setModel] = useState(settings.model);
   const [elevenLabsKey, setElevenLabsKey] = useState(settings.elevenLabsKey);
   const [voiceId, setVoiceId] = useState(settings.voiceId);
+  const [detecting, setDetecting] = useState(false);
+  const [detectNote, setDetectNote] = useState("");
+
+  async function detectLocal(): Promise<void> {
+    const bridge = (window as unknown as DetectBridge).jarvisDesktop;
+    if (!bridge?.detectHermes) {
+      setDetectNote("La detección automática solo está disponible dentro de la app de escritorio.");
+      return;
+    }
+
+    setDetecting(true);
+    setDetectNote("Buscando Hermes local…");
+    try {
+      const result = await bridge.detectHermes();
+      if (!result.found) {
+        setDetectNote(result.error || "No se encontró Hermes.");
+        return;
+      }
+      if (result.url) setHermesUrl(result.url);
+      if (result.key) setHermesKey(result.key);
+      if (result.enabled === false) {
+        setDetectNote("Hermes detectado, pero el API server está desactivado.");
+        return;
+      }
+      setDetectNote(
+        `Detectado en ${result.url || `127.0.0.1:${result.port || 8643}`}${result.gateway === false ? " · gateway sin responder" : ""}.`,
+      );
+    } catch (detectError) {
+      setDetectNote(detectError instanceof Error ? detectError.message : "No se pudo detectar Hermes.");
+    } finally {
+      setDetecting(false);
+    }
+  }
 
   const apply = (): void => {
     setSettings({
@@ -84,6 +133,13 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
           />
           <small>Debe coincidir con <code>platforms.api_server.extra.key</code> de Hermes.</small>
         </label>
+
+        <div className="settings-detect">
+          <button type="button" className="ghost small" onClick={() => void detectLocal()} disabled={detecting}>
+            {detecting ? "Detectando…" : "Detectar Hermes local"}
+          </button>
+          {detectNote ? <small>{detectNote}</small> : null}
+        </div>
 
         <label className="field">
           <span>Modelo</span>
@@ -175,7 +231,7 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
         <div className="settings-note">
           <strong>Red</strong>
           <p>
-            El cerebro de JARVIS (Hermes) se ejecuta en este equipo en <code>127.0.0.1:8643</code>. No se necesita túnel SSH.
+            El cerebro de JARVIS (Hermes) se ejecuta en este equipo y se detecta en <code>127.0.0.1:8643</code>.
           </p>
         </div>
       </aside>

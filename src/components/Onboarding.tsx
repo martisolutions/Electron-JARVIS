@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HermesClient } from "../lib/hermes";
 import { useStore } from "../store";
 import type { AgentConfig } from "../types";
@@ -7,6 +7,23 @@ type Detection = {
   model: string;
   toolsets: string[];
   agents: AgentConfig[];
+};
+
+type LocalHermes = {
+  found: boolean;
+  url?: string;
+  key?: string;
+  port?: number;
+  enabled?: boolean;
+  gateway?: boolean;
+  configPath?: string;
+  error?: string;
+};
+
+type DetectBridge = {
+  jarvisDesktop?: {
+    detectHermes?: () => Promise<LocalHermes>;
+  };
 };
 
 function detectAgents(configs: AgentConfig[], toolsets: string[]): AgentConfig[] {
@@ -36,14 +53,17 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [voiceId, setVoiceId] = useState(settings.voiceId);
   const [detection, setDetection] = useState<Detection | null>(null);
   const [testing, setTesting] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detectNote, setDetectNote] = useState("");
   const [error, setError] = useState("");
+  const autoDetectRan = useRef(false);
 
-  async function testConnection(): Promise<void> {
+  async function testConnection(nextUrl = url, nextKey = key): Promise<void> {
     setTesting(true);
     setError("");
     setDetection(null);
     try {
-      const client = new HermesClient({ ...settings, hermesUrl: url.trim(), hermesKey: key.trim() });
+      const client = new HermesClient({ ...settings, hermesUrl: nextUrl.trim(), hermesKey: nextKey.trim() });
       const [models, toolsets] = await Promise.all([client.listModels(), client.getToolsets()]);
       const model = models.includes(settings.model) ? settings.model : (models[0] ?? "hermes-agent");
       const enabledToolsets = toolsets.filter((toolset) => toolset.enabled).map((toolset) => toolset.name);
@@ -58,6 +78,53 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
       setTesting(false);
     }
   }
+
+  async function autoDetect(): Promise<void> {
+    const bridge = (window as unknown as DetectBridge).jarvisDesktop;
+    if (!bridge?.detectHermes) {
+      setDetectNote("La detección automática solo está disponible dentro de la app de escritorio.");
+      return;
+    }
+
+    setDetecting(true);
+    setDetectNote("Buscando Hermes local…");
+    try {
+      const result = await bridge.detectHermes();
+      if (!result.found) {
+        setDetectNote(result.error || "No se encontró Hermes. Puedes introducir los datos manualmente.");
+        return;
+      }
+
+      const detectedUrl = result.url || `http://127.0.0.1:${result.port || 8643}/v1`;
+      const detectedKey = result.key || "";
+      setUrl(detectedUrl);
+      setKey(detectedKey);
+
+      if (result.enabled === false) {
+        setDetectNote("Hermes está configurado, pero el API server está desactivado.");
+        return;
+      }
+      if (!detectedKey) {
+        setDetectNote("Hermes detectado, pero no encontré la API key. Escríbela o revisa config.yaml.");
+        return;
+      }
+
+      setDetectNote(
+        `Hermes detectado en ${detectedUrl}${result.gateway === false ? " · el gateway no responde todavía" : ""}.`,
+      );
+      await testConnection(detectedUrl, detectedKey);
+    } catch (detectError) {
+      setDetectNote(detectError instanceof Error ? detectError.message : "No se pudo detectar Hermes.");
+    } finally {
+      setDetecting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (autoDetectRan.current) return;
+    autoDetectRan.current = true;
+    void autoDetect();
+  }, []);
 
   function start(): void {
     if (!detection) return;
@@ -80,8 +147,8 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
         <span className="eyebrow">PRIMERA CONFIGURACIÓN</span>
         <h1>Conecta tu Hermes</h1>
         <p className="onboarding-intro">
-          Introduce la URL del API server de Hermes. La app comprobará el modelo y las capacidades disponibles
-          antes de crear los agentes.
+          Detectamos automáticamente el gateway local de Hermes y su API key. Puedes revisar los datos y la app
+          comprobará el modelo y las capacidades antes de crear los agentes.
         </p>
 
         <label>
@@ -126,6 +193,7 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
           </label>
         </div>
 
+        {detectNote ? <p className="onboarding-note">{detectNote}</p> : null}
         {error ? <p className="onboarding-error">{error}</p> : null}
 
         {detection ? (
@@ -151,6 +219,9 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
         ) : null}
 
         <div className="onboarding-actions">
+          <button type="button" onClick={() => void autoDetect()} disabled={detecting || testing}>
+            {detecting ? "Detectando…" : "Detectar Hermes"}
+          </button>
           <button type="button" onClick={() => void testConnection()} disabled={testing || !url.trim() || !key.trim()}>
             {testing ? "Comprobando…" : "Probar conexión y detectar"}
           </button>

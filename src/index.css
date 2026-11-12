@@ -783,6 +783,21 @@ code,
   color: rgba(190, 230, 240, 0.78);
 }
 
+.settings-detect {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: -2px;
+}
+
+.settings-detect small {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: rgba(160, 220, 235, 0.62);
+}
+
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2473,6 +2488,7 @@ code,
 
 .onboarding-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
@@ -2498,6 +2514,17 @@ code,
 .onboarding-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+.onboarding-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 220, 255, 0.16);
+  background: rgba(8, 26, 34, 0.55);
+  color: rgba(170, 230, 245, 0.72);
+  font-size: 10.5px;
+  line-height: 1.5;
 }
 
 .onboarding-error {

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   },
   readHermesLog: (filePath) => ipcRenderer.invoke("hermes:read-log", filePath),
   stopAllAgents: () => ipcRenderer.invoke("hermes:stop-all"),
+  detectHermes: () => ipcRenderer.invoke("hermes:detect-local"),
   listPanels: () => ipcRenderer.invoke("panels:list"),
   createPanel: (input) => ipcRenderer.invoke("panels:create", input),
   updatePanel: (id, input) => ipcRenderer.invoke("panels:update", id, input),

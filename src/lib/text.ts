@@ -55,7 +55,7 @@ export function friendlyError(message: string): string {
   if (/api key id used as api key|invalid_api_key/i.test(message)) {
     return "La API key de ElevenLabs no es válida. Usa el secreto completo que empieza por sk_ (no el ID de la key).";
   }
-  if (/no se pudo conectar con (hermes|jarvis)|túnel ssh|failed to fetch|networkerror|load failed/i.test(message)) {
+  if (/no se pudo conectar con (hermes|jarvis)|failed to fetch|networkerror|load failed/i.test(message)) {
     return "No se pudo conectar con JARVIS. Verifica que Hermes local esté activo en http://127.0.0.1:8643/v1.";
   }
   if (/(hermes|jarvis) respondió 404|not found/i.test(message)) {
