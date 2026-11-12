@@ -350,7 +350,7 @@ export default function App() {
 
     void (async () => {
       try {
-        const response = await fetch("/audio/jarvis-welcome.mp3", { cache: "force-cache" });
+        const response = await fetch("/audio/jarvis-inicializado.mp3", { cache: "force-cache" });
         if (!response.ok) return;
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (cancelled) return;
