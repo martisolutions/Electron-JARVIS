@@ -66,6 +66,22 @@ export type NodeWord = {
 export type NodeWordsState = {
   words: NodeWord[];
 };
+export type SystemMetrics = {
+  cpu: number;
+  cores: number[];
+  freq: number;
+  ramUsed: number;
+  ramTotal: number;
+  ramCache: number;
+  vramUsed: number;
+  vramTotal: number;
+  gpuTemp: number;
+  gpuLoad: number;
+  gpuName: string;
+  diskRead: number;
+  diskWrite: number;
+  uptime: number;
+};
 export type PanelKind = "code" | "diagram" | "text" | "markdown";
 
 export type JarvisPanel = {

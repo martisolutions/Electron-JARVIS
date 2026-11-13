@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, session, shell, Notification, dialog } = re
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { execFile } = require("node:child_process");
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -32,6 +33,94 @@ function gatewayHealthy(port = 8643) {
   });
 }
 
+let metricsCache = { at: 0, value: null };
+let previousCpu = os.cpus().map((cpu) => cpu.times);
+
+function cpuUsage() {
+  const cpus = os.cpus();
+  const cores = cpus.map((cpu, index) => {
+    const previous = previousCpu[index] ?? cpu.times;
+    const total = Object.values(cpu.times).reduce((sum, value) => sum + value, 0);
+    const previousTotal = Object.values(previous).reduce((sum, value) => sum + value, 0);
+    const idle = cpu.times.idle - previous.idle;
+    const delta = total - previousTotal;
+    return delta > 0 ? Math.max(0, Math.min(100, (1 - idle / delta) * 100)) : 0;
+  });
+  previousCpu = cpus.map((cpu) => ({ ...cpu.times }));
+  return {
+    total: cores.reduce((sum, value) => sum + value, 0) / Math.max(1, cores.length),
+    cores,
+    freq: (cpus[0]?.speed ?? 0) / 1000,
+  };
+}
+
+async function readGpuMetrics() {
+  try {
+    const { stdout } = await execFileAsync(
+      "nvidia-smi",
+      ["--query-gpu=name,memory.used,memory.total,temperature.gpu,utilization.gpu", "--format=csv,noheader,nounits"],
+      { timeout: 4000, windowsHide: true },
+    );
+    const first = stdout.split(/\r?\n/).find((line) => line.trim());
+    if (!first) throw new Error("sin GPU");
+    const [name, used, total, temp, load] = first.split(",").map((part) => part.trim());
+    return {
+      used: Number(used) / 1024 || 0,
+      total: Number(total) / 1024 || 0,
+      temp: Number(temp) || 0,
+      load: Number(load) || 0,
+      name: name || "GPU",
+    };
+  } catch {
+    return { used: 0, total: 0, temp: 0, load: 0, name: "GPU no disponible" };
+  }
+}
+
+async function readDiskMetrics() {
+  try {
+    const script =
+      "$d=Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -Filter \"Name='_Total'\" | Select-Object -First 1;" +
+      "if($d){ @{ read=[double]$d.DiskReadBytesPerSec; write=[double]$d.DiskWriteBytesPerSec } | ConvertTo-Json -Compress }";
+    const { stdout } = await execFileAsync(
+      powershellPath(),
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { timeout: 4000, windowsHide: true, maxBuffer: 16 * 1024 },
+    );
+    const parsed = JSON.parse(stdout.trim() || "{}");
+    return { read: Number(parsed.read) / 1_000_000 || 0, write: Number(parsed.write) / 1_000_000 || 0 };
+  } catch {
+    return { read: 0, write: 0 };
+  }
+}
+
+async function getSystemMetrics() {
+  if (metricsCache.value && Date.now() - metricsCache.at < 650) return metricsCache.value;
+  const cpu = cpuUsage();
+  const totalRam = os.totalmem() / 1024 / 1024 / 1024;
+  const freeRam = os.freemem() / 1024 / 1024 / 1024;
+  const gpu = await readGpuMetrics();
+  const disk = await readDiskMetrics();
+  const value = {
+    cpu: Math.round(cpu.total),
+    cores: cpu.cores.map((core) => Math.round(core)),
+    freq: Number(cpu.freq.toFixed(2)),
+    ramUsed: Number((totalRam - freeRam).toFixed(2)),
+    ramTotal: Number(totalRam.toFixed(2)),
+    ramCache: Number((freeRam * 0.18).toFixed(2)),
+    vramUsed: Number(gpu.used.toFixed(2)),
+    vramTotal: Number(gpu.total.toFixed(2)),
+    gpuTemp: Math.round(gpu.temp),
+    gpuLoad: Math.round(gpu.load),
+    gpuName: gpu.name,
+    diskRead: Number(disk.read.toFixed(2)),
+    diskWrite: Number(disk.write.toFixed(2)),
+    uptime: Math.round(os.uptime()),
+  };
+  metricsCache = { at: Date.now(), value };
+  return value;
+}
+
+ipcMain.handle("system:metrics", () => getSystemMetrics());
 function powershellPath() {
   return path.join(
     process.env.SystemRoot || "C:\\Windows",
@@ -295,6 +384,7 @@ function scheduleReminder(input) {
 }
 
 const NODE_WORD_LIMIT = 100;
+const NODE_ORBIT_SLOTS = 18;
 let nodeWords = [];
 let nodeStoreFile = "";
 
@@ -350,7 +440,7 @@ function saveNodeStore() {
 }
 
 function nodeSnapshot() {
-  return { words: nodeWords };
+  return { words: nodeWords, capacity: NODE_ORBIT_SLOTS };
 }
 
 function broadcastNodeWords() {
@@ -623,19 +713,19 @@ function startPanelApi() {
       return;
     }
 
-    if (pathname === "/node" && request.method === "GET") {
+    if ((pathname === "/node" || pathname === "/nodes") && request.method === "GET") {
       sendPanelJson(response, 200, { object: "list", ...nodeSnapshot() });
       return;
     }
 
-    if (pathname === "/node" && request.method === "POST") {
+    if ((pathname === "/node" || pathname === "/nodes") && request.method === "POST") {
       try {
         const body = await readJsonBody(request);
         if (!body || typeof body !== "object" || Array.isArray(body)) {
           sendPanelJson(response, 400, { error: "Se esperaba un objeto JSON." });
           return;
         }
-        sendPanelJson(response, 201, addNodeWord(body));
+        sendPanelJson(response, 201, { ...addNodeWord(body), capacity: NODE_ORBIT_SLOTS });
       } catch (error) {
         sendPanelJson(response, 400, { error: error.message || "Palabra no válida." });
       }

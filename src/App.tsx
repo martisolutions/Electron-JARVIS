@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { AgentChatModal } from "./components/AgentChatModal";
+import { Clock } from "./components/Clock";
 import { AgentEditor } from "./components/AgentEditor";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { Board } from "./components/Board";
@@ -7,24 +8,25 @@ import { LogsPanel } from "./components/LogsPanel";
 import { NodeWords } from "./components/NodeWords";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { AttachmentIcon, BoardIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
-import { AudioEngine, ZERO_LEVELS } from "./lib/audio";
+import { AttachmentIcon, BoardIcon, ChatIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AudioEngine } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
 import { VoiceRecorder } from "./lib/recorder";
 import { errorMessage, friendlyError, sanitizeForSpeech } from "./lib/text";
-import { Orb } from "./orb/Orb";
+import { HudOrb } from "./components/HudOrb";
+import { HudLeftPanels, HudRightPanels, HudUptime } from "./components/HudPanels";
 import { useStore } from "./store";
-import type { AgentCard, ConnectionState, NodeWord } from "./types";
+import type { AgentCard, ConnectionState, NodeWord, SystemMetrics } from "./types";
 
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
 type ButtonMode = "hold" | "latched";
 
 type NodeBridge = {
-  listNodeWords?: () => Promise<{ words?: NodeWord[] }>;
+  listNodeWords?: () => Promise<{ words?: NodeWord[]; capacity?: number }>;
   addNodeWord?: (input: { word?: string; context?: string }) => Promise<NodeWord>;
-  onNodeWords?: (callback: (state: { words?: NodeWord[] }) => void) => () => void;
+  onNodeWords?: (callback: (state: { words?: NodeWord[]; capacity?: number }) => void) => () => void;
 };
 
 type FilesBridge = {
@@ -40,7 +42,7 @@ function fileNameFromPath(filePath: string): string {
 const STATUS_LABEL: Record<ConnectionState, string> = {
   idle: "EN ESPERA",
   connecting: "CONECTANDO",
-  connected: "EN LÍNEA",
+  connected: "EN LÃƒÂNEA",
   error: "ERROR",
 };
 
@@ -65,7 +67,7 @@ function asNumber(value: unknown): number | undefined {
 
 function truncateText(value: string, max = 120): string {
   const text = value.trim();
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  return text.length > max ? `${text.slice(0, max - 1)}Ã¢â‚¬Â¦` : text;
 }
 
 function condenseReply(text: string, maxChars = 200): string {
@@ -93,7 +95,7 @@ function condenseReply(text: string, maxChars = 200): string {
 
   const cut = value.slice(0, maxChars).trim();
   const lastStop = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
-  return lastStop > maxChars * 0.6 ? cut.slice(0, lastStop + 1) : `${cut}…`;
+  return lastStop > maxChars * 0.6 ? cut.slice(0, lastStop + 1) : `${cut}Ã¢â‚¬Â¦`;
 }
 
 function parseCostFromText(text: string): number | undefined {
@@ -106,7 +108,7 @@ function parseCostFromText(text: string): number | undefined {
 function parseDurationFromText(text: string): number | undefined {
   const json = text.match(/"duration_seconds"\s*:\s*([0-9]+(?:\.[0-9]+)?)/i);
   if (json) return Number(json[1]);
-  const duration = text.match(/(?:duration|duraci[oó]n|tiempo)[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(?:s|seg|sec)?/i);
+  const duration = text.match(/(?:duration|duraci[oÃƒÂ³]n|tiempo)[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(?:s|seg|sec)?/i);
   return duration ? Number(duration[1]) : undefined;
 }
 
@@ -140,10 +142,10 @@ function formatAsyncDelegation(content: string): string {
           const rate = duty.match(/[0-9]+(?:[.,][0-9]+)?\s*%/)?.[0];
           if (rate) parts.push(`derecho ${rate}`);
           const antidumping = extra.match(
-            /(?:antidumping|antid[úu]mping)[^0-9]{0,40}([0-9]+(?:[.,][0-9]+)?\s*%)/i,
+            /(?:antidumping|antid[ÃƒÂºu]mping)[^0-9]{0,40}([0-9]+(?:[.,][0-9]+)?\s*%)/i,
           )?.[1];
           if (antidumping) parts.push(`antidumping ${antidumping}`);
-          const sourceLabel = /ec\.europa\.eu/i.test(source) ? "TARIC (Comisión Europea)" : "";
+          const sourceLabel = /ec\.europa\.eu/i.test(source) ? "TARIC (ComisiÃƒÂ³n Europea)" : "";
           const summary = parts.join("; ");
           return `${summary}${sourceLabel ? `. Fuente: ${sourceLabel}` : ""}.`;
         }
@@ -177,7 +179,7 @@ function formatAsyncDelegation(content: string): string {
     .join(" ");
   const summary = condenseReply(result || content, 200) || "El subagente ha terminado.";
   return /TRUNCATED|hit max_iterations|iteration cap/i.test(content)
-    ? `${summary} (incompleto: límite de pasos)`
+    ? `${summary} (incompleto: lÃƒÂ­mite de pasos)`
     : summary;
 }
 
@@ -195,8 +197,6 @@ export default function App() {
   const agentChat = useStore((state) => state.agentChat);
   const agents = useStore((state) => state.agents);
 
-  const stageRef = useRef<HTMLDivElement>(null);
-  const orbRef = useRef<Orb | null>(null);
   const audioRef = useRef<AudioEngine | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const hermesRef = useRef<HermesClient | null>(null);
@@ -239,7 +239,10 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [logsOpen, setLogsOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
+  const [nodeCapacity, setNodeCapacity] = useState(18);
   const [nodeZoom, setNodeZoom] = useState(1);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -263,9 +266,17 @@ export default function App() {
     const list = Object.values(agents).filter((agent) => agent.id !== "jarvis" && agent.status === "running");
     const openAgent = agentChat ? agents[agentChat] : null;
     if (openAgent && openAgent.id !== "jarvis" && !list.some((agent) => agent.id === openAgent.id)) list.push(openAgent);
-    return list.slice(0, 4).map((agent) => ({ id: agent.id, name: agent.name }));
-  }, [agents, agentChat]);
-  const satelliteKey = satelliteAgents.map((agent) => agent.id).join("|");
+    return list.slice(0, 4).map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      summary: (agent.summary || agent.lastOperation || agent.task || "recibiendo datos")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 10)
+        .join(" "),
+    }));  }, [agents, agentChat]);
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const lastMessage = messages[messages.length - 1];
   const awaitingReply = lastMessage?.role === "user";
@@ -304,7 +315,7 @@ export default function App() {
       const live = useStore.getState();
       live.setBoardOpen(false);
       if (live.agentChat) live.closeAgentChat();
-      notify("Otra instancia de JARVIS detectada; comprobando agentes en segundo plano…");
+      notify("Otra instancia de JARVIS detectada; comprobando agentes en segundo planoÃ¢â‚¬Â¦");
       if (live.connection === "connected") void resumeBackground();
       else void connect();
     });
@@ -339,44 +350,14 @@ export default function App() {
     audioRef.current = audio;
     const recorder = new VoiceRecorder();
     recorderRef.current = recorder;
-    if (!stageRef.current) return;
-
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const orbInstance = new Orb(stageRef.current, {
-      levels: () => {
-        const phase = phaseRef.current;
-        if (phase === "starting" || phase === "recording") {
-          return recorderRef.current?.getLevels() ?? ZERO_LEVELS;
-        }
-        return audioRef.current?.getLevels() ?? ZERO_LEVELS;
-      },
-      reducedMotion: reduced,
-      onZoom: (value) => setNodeZoom(value / 4.5),
-    });
-    orbRef.current = orbInstance;
 
     return () => {
-      orbInstance.dispose();
       audio.dispose();
       recorder.cancel();
-      orbRef.current = null;
       audioRef.current = null;
       recorderRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    orbRef.current?.setState(orb);
-  }, [orb]);
-
-  useEffect(() => {
-    orbRef.current?.setActivityMode(orbActivity);
-  }, [orbActivity]);
-
-  useEffect(() => {
-    orbRef.current?.setSatellites(satelliteAgents);
-  }, [satelliteKey]);
-
   useEffect(() => {
     const seed = useStore.getState().settings;
     if (seed.onboarded && seed.hermesUrl.trim() && seed.hermesKey.trim()) void connect();
@@ -388,17 +369,41 @@ export default function App() {
     if (!bridge?.listNodeWords && !bridge?.onNodeWords) return;
     let cancelled = false;
     void bridge.listNodeWords?.().then((state) => {
-      if (!cancelled) setNodeWords(Array.isArray(state?.words) ? state.words : []);
+      if (!cancelled) {
+        setNodeWords(Array.isArray(state?.words) ? state.words : []);
+        setNodeCapacity(Number(state?.capacity) > 0 ? Number(state?.capacity) : 18);
+      }
     });
     const unsubscribe = bridge.onNodeWords?.((state) => {
-      if (!cancelled) setNodeWords(Array.isArray(state?.words) ? state.words : []);
-    });
-    return () => {
+      if (!cancelled) {
+        setNodeWords(Array.isArray(state?.words) ? state.words : []);
+        setNodeCapacity(Number(state?.capacity) > 0 ? Number(state?.capacity) : 18);
+      }
+    });    return () => {
       cancelled = true;
       unsubscribe?.();
     };
   }, []);
 
+  useEffect(() => {
+    const bridge = (window as unknown as { jarvisDesktop?: { getSystemMetrics?: () => Promise<SystemMetrics> } }).jarvisDesktop;
+    if (!bridge?.getSystemMetrics) return;
+    let cancelled = false;
+    const poll = async (): Promise<void> => {
+      try {
+        const next = await bridge.getSystemMetrics?.();
+        if (!cancelled && next) setMetrics(next);
+      } catch {
+        /* metrics are best-effort */
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     if (sessionStorage.getItem("jarvis.welcomePlayed") === "1") return;
     const audio = audioRef.current;
@@ -521,7 +526,7 @@ export default function App() {
     const current = live.settings;
     const client = new HermesClient(current);
     hermesRef.current = client;
-    live.setConnection("connecting", "Consultando JARVIS…");
+    live.setConnection("connecting", "Consultando JARVISÃ¢â‚¬Â¦");
     if (useStore.getState().orb !== "speaking") live.setOrb("connecting");
 
     try {
@@ -532,7 +537,7 @@ export default function App() {
         hermesRef.current = new HermesClient({ ...current, model: selected });
       }
 
-      live.setConnection("connected", `${selected} · ${hostOf(current.hermesUrl)}`);
+      live.setConnection("connected", `${selected} Ã‚Â· ${hostOf(current.hermesUrl)}`);
       if (useStore.getState().orb !== "speaking") live.setOrb("idle");
       void audioRef.current?.ensure().catch(() => undefined);
       await initializeSessionBaseline();
@@ -540,7 +545,7 @@ export default function App() {
       startNotificationPoll();
 
       if (new URLSearchParams(window.location.search).has("testvoice")) {
-        window.setTimeout(() => void speakText("Hola Jordi. Soy JARVIS. Sistemas en línea."), 700);
+        window.setTimeout(() => void speakText("Hola Jordi. Soy JARVIS. Sistemas en lÃƒÂ­nea."), 700);
       }
     } catch (error) {
       live.setConnection("error", friendlyError(errorMessage(error)));
@@ -584,7 +589,7 @@ export default function App() {
         );
 
       if (!latestDelegation) {
-        notify("Hay una ejecución en curso, pero no encuentro un subagente recuperable en esta sesión.");
+        notify("Hay una ejecuciÃƒÂ³n en curso, pero no encuentro un subagente recuperable en esta sesiÃƒÂ³n.");
         return;
       }
 
@@ -598,8 +603,8 @@ export default function App() {
         status: "idle",
         lastOperation: "Agentes en segundo plano",
       });
-      live.logAgent("JARVIS → sesión: recuperando agentes en segundo plano");
-      notify("Ejecuciones en segundo plano detectadas; sesión recuperada.");
+      live.logAgent("JARVIS Ã¢â€ â€™ sesiÃƒÂ³n: recuperando agentes en segundo plano");
+      notify("Ejecuciones en segundo plano detectadas; sesiÃƒÂ³n recuperada.");
     } catch {
       /* best effort: the normal connection remains usable */
     }
@@ -641,7 +646,7 @@ export default function App() {
       return;
     }
     if (!live.settings.elevenLabsKey.trim()) {
-      notify("Falta la API key de ElevenLabs. Añádela en Ajustes para dictar.");
+      notify("Falta la API key de ElevenLabs. AÃƒÂ±ÃƒÂ¡dela en Ajustes para dictar.");
       return;
     }
     const recorder = recorderRef.current;
@@ -734,7 +739,7 @@ export default function App() {
       if (phaseRef.current !== "transcribing") return;
 
       if (blob.size === 0 || duration < 250) {
-        notify(source === "space" ? "Mantén espacio un poco más para hablar." : "Mantén pulsado un poco más para hablar.");
+        notify(source === "space" ? "MantÃƒÂ©n espacio un poco mÃƒÂ¡s para hablar." : "MantÃƒÂ©n pulsado un poco mÃƒÂ¡s para hablar.");
         resetRecordingState();
         return;
       }
@@ -751,7 +756,7 @@ export default function App() {
       }
 
       if (!text) {
-        notify("No se detectó voz. Inténtalo de nuevo.");
+        notify("No se detectÃƒÂ³ voz. IntÃƒÂ©ntalo de nuevo.");
         resetRecordingState();
         return;
       }
@@ -805,7 +810,7 @@ export default function App() {
   }
 
   async function stopEverything(): Promise<void> {
-    if (!window.confirm("�Detener todas las ejecuciones de JARVIS y sus agentes? Se reiniciar� el cerebro local.")) {
+    if (!window.confirm("Ã¯Â¿Â½Detener todas las ejecuciones de JARVIS y sus agentes? Se reiniciarÃ¯Â¿Â½ el cerebro local.")) {
       return;
     }
 
@@ -820,7 +825,7 @@ export default function App() {
       });
     }
     live.logAgent("Jordi detuvo todas las ejecuciones.");
-    notify("Deteniendo todos los agentes…");
+    notify("Deteniendo todos los agentesÃ¢â‚¬Â¦");
 
     const bridge = (window as unknown as { jarvisDesktop?: { stopAllAgents?: () => Promise<boolean> } })
       .jarvisDesktop;
@@ -831,7 +836,7 @@ export default function App() {
       stopped = false;
     }
 
-    notify(stopped ? "Agentes detenidos. Reconectando…" : "No se pudo confirmar el reinicio de Hermes. Reconectando…");
+    notify(stopped ? "Agentes detenidos. ReconectandoÃ¢â‚¬Â¦" : "No se pudo confirmar el reinicio de Hermes. ReconectandoÃ¢â‚¬Â¦");
     window.setTimeout(() => {
       void connect();
     }, 800);
@@ -858,7 +863,7 @@ export default function App() {
     try {
       if (bridge?.addNodeWord) await bridge.addNodeWord(payload);
       else {
-        await fetch("http://127.0.0.1:5191/node", {
+        await fetch("http://127.0.0.1:5191/nodes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -939,7 +944,7 @@ export default function App() {
       latest.setPartial("");
       partialRef.current = "";
       latest.setOrb("error");
-      latest.patchAgent("jarvis", { status: "error", endedAt: Date.now(), lastOperation: "Error de conexión" });
+      latest.patchAgent("jarvis", { status: "error", endedAt: Date.now(), lastOperation: "Error de conexiÃƒÂ³n" });
       addSystem(friendlyError(errorMessage(error)));
       window.setTimeout(() => {
         if (useStore.getState().orb === "error") useStore.getState().setOrb("idle");
@@ -970,10 +975,10 @@ export default function App() {
       startedAt: start,
       endedAt: undefined,
       costUsd: undefined,
-      lastOperation: "Iniciando subagente…",
+      lastOperation: "Iniciando subagenteÃ¢â‚¬Â¦",
     });
     if (!previous || previous.id !== target.id) {
-      store.logAgent(`JARVIS → ${target.name}: ${truncateText(task, 90)}`);
+      store.logAgent(`JARVIS Ã¢â€ â€™ ${target.name}: ${truncateText(task, 90)}`);
     }
   }
 
@@ -1046,7 +1051,7 @@ export default function App() {
         const preview = asString(event.preview);
         store.patchAgent("jarvis", {
           status: "running",
-          lastOperation: preview ? `${tool} · ${truncateText(preview, 80)}` : tool,
+          lastOperation: preview ? `${tool} Ã‚Â· ${truncateText(preview, 80)}` : tool,
         });
         store.logActivity("jarvis", "tool", preview ? `${tool}: ${preview}` : tool);
         if (tool === "delegate_task") startDelegation(preview, Date.now());
@@ -1056,11 +1061,11 @@ export default function App() {
         const tool = asString(event.tool);
         const failed = event.error === true;
         const preview = asString(event.preview);
-        store.patchAgent("jarvis", { lastOperation: failed ? `${tool} · error` : `${tool} · completado` });
+        store.patchAgent("jarvis", { lastOperation: failed ? `${tool} Ã‚Â· error` : `${tool} Ã‚Â· completado` });
         store.logActivity("jarvis", failed ? "error" : "result", preview ? `${tool}: ${preview}` : tool);
         if (tool === "delegate_task") {
           const active = activeDelegationRef.current;
-          if (active) store.patchAgent(active.id, { lastOperation: "Delegado ┬À en segundo plano" });
+          if (active) store.patchAgent(active.id, { lastOperation: "Delegado Ã¢â€Â¬Ãƒâ‚¬ en segundo plano" });
         }
         break;
       }
@@ -1082,7 +1087,7 @@ export default function App() {
           lastOperation: "Subagente iniciado",
         });
         store.logActivity(target.id, "info", goal);
-        store.logAgent(`JARVIS ÔåÆ ${target.name}: ${truncateText(goal, 90)}`);
+        store.logAgent(`JARVIS Ãƒâ€ÃƒÂ¥Ãƒâ€  ${target.name}: ${truncateText(goal, 90)}`);
         break;
       }
       case "subagent.complete": {
@@ -1099,7 +1104,7 @@ export default function App() {
           lastOperation: status || "Completado",
         });
         store.logAgent(
-          `${target.name} ÔåÆ JARVIS: ${truncateText(asString(event.summary) || asString(event.output_tail) || "completado", 90)}`,
+          `${target.name} Ãƒâ€ÃƒÂ¥Ãƒâ€  JARVIS: ${truncateText(asString(event.summary) || asString(event.output_tail) || "completado", 90)}`,
         );
         store.logActivity(target.id, status === "completed" ? "info" : "error", asString(event.summary) || asString(event.output_tail) || status || "completado");
         void fetchChildSessionCost(asString(event.child_session_id) || asString(event.subagent_session_id));
@@ -1373,7 +1378,7 @@ export default function App() {
           lastOperation: "Resultado recibido",
         });
       }
-      store.logAgent(`${active.name} → JARVIS: ${truncateText(reply, 90)}`);
+      store.logAgent(`${active.name} Ã¢â€ â€™ JARVIS: ${truncateText(reply, 90)}`);
     }
 
     store.addMessage("assistant", reply);
@@ -1385,7 +1390,7 @@ export default function App() {
     const display = condenseReply(formatAsyncDelegation(content), 220);
     const store = useStore.getState();
     const active = activeDelegationRef.current;
-    const completionId = /^\[ASYNC DELEGATION BATCH COMPLETE\s*[-—]\s*([^\]]+)\]/i.exec(content)?.[1]?.trim();
+    const completionId = /^\[ASYNC DELEGATION BATCH COMPLETE\s*[-Ã¢â‚¬â€]\s*([^\]]+)\]/i.exec(content)?.[1]?.trim();
     if (!active) return;
     if (completionId && active.delegationId && completionId !== active.delegationId) return;
     const duration = Number(/Total duration:\s*([0-9]+(?:\.[0-9]+)?)\s*s/i.exec(content)?.[1]);
@@ -1402,7 +1407,7 @@ export default function App() {
           summary: truncateText(display, 320),
         });
       }
-      store.logAgent(`${active.name} → JARVIS: ${truncateText(display, 90)}`);
+      store.logAgent(`${active.name} Ã¢â€ â€™ JARVIS: ${truncateText(display, 90)}`);
     }
 
     if (!addToChat || !display) return;
@@ -1458,7 +1463,7 @@ export default function App() {
       delegationId,
     });
     if (!existing || existing.status !== "running") {
-      store.logAgent(`JARVIS → ${target.name}: ${truncateText(goal, 90)}`);
+      store.logAgent(`JARVIS Ã¢â€ â€™ ${target.name}: ${truncateText(goal, 90)}`);
     }
   }
 
@@ -1584,7 +1589,7 @@ export default function App() {
   async function pickAttachments(): Promise<void> {
     const bridge = (window as unknown as FilesBridge).jarvisDesktop;
     if (!bridge?.pickFiles) {
-      notify("Los archivos adjuntos solo están disponibles en la app de escritorio.");
+      notify("Los archivos adjuntos solo estÃƒÂ¡n disponibles en la app de escritorio.");
       return;
     }
     try {
@@ -1610,34 +1615,34 @@ export default function App() {
   function testVoice(): void {
     hermesRef.current = new HermesClient(useStore.getState().settings);
     void audioRef.current?.ensure().catch(() => undefined);
-    void speakText("Hola Jordi. Soy JARVIS. Sistemas en línea. Todos los sistemas funcionan correctamente.");
+    void speakText("Hola Jordi. Soy JARVIS. Sistemas en lÃƒÂ­nea. Todos los sistemas funcionan correctamente.");
   }
 
   const micTitle = !micSupported
-    ? "Micrófono no disponible"
+    ? "MicrÃƒÂ³fono no disponible"
     : transcribing
-      ? "Transcribiendo…"
+      ? "TranscribiendoÃ¢â‚¬Â¦"
       : recording
         ? recordingMode === "latched"
           ? "Grabando: clic para parar"
           : "Grabando: suelta para enviar"
-        : "Mantén para hablar";
+        : "MantÃƒÂ©n para hablar";
 
   return (
-    <div className="app" data-state={orb}>
-      <div className="stage-bg" ref={stageRef} aria-hidden="true" />
-      <div className="veil" aria-hidden="true" />
-      <NodeWords words={nodeWords} zoom={nodeZoom} mode={orbActivity} />
-
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">J.A.R.V.I.S.</span>
-          <span className="brand-sub">JARVIS INTERFACE</span>
+    <div className="app hud-app" data-state={orb}>
+      <header className="hud-header">
+        <div className="hud-brand">
+          <span>J.A.R.V.I.S.</span>
+          <small>NEXUS CORE // SYSTEM MONITOR</small>
         </div>
-        <div className="topbar-right">
+        <Clock />
+        <div className="hud-header-right">
           <span className={`status status-${connection}`} title={connectionDetail}>
             <i />
             {STATUS_LABEL[connection]}
+          </span>
+          <span className="hud-uptime-wrap">
+            <i /> ONLINE Â· T+<HudUptime metrics={metrics} />
           </span>
           <button
             type="button"
@@ -1648,57 +1653,54 @@ export default function App() {
           >
             <StopIcon />
           </button>
-          <button
-            type="button"
-            className="icon-btn logs-btn"
-            onClick={() => setLogsOpen(true)}
-            aria-label="Logs de agentes"
-            title="Logs de agentes"
-          >
+          <button type="button" className="icon-btn" onClick={() => setAgentsOpen((open) => !open)} aria-label="Agentes" title="Agentes">
+            <ChatIcon />
+          </button>
+          <button type="button" className="icon-btn logs-btn" onClick={() => setLogsOpen(true)} aria-label="Logs de agentes" title="Logs de agentes">
             <LogsIcon />
           </button>
-          <button
-            type="button"
-            className="icon-btn board-btn"
-            onClick={() => setBoardOpen(true)}
-            aria-label="Tablero"
-            title="Tablero"
-          >
+          <button type="button" className="icon-btn board-btn" onClick={() => setBoardOpen(true)} aria-label="Tablero" title="Tablero">
             <BoardIcon />
           </button>
-          <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes">
+          <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes" title="Ajustes">
             <SettingsIcon />
           </button>
         </div>
       </header>
 
-      <main className="stage" aria-live="polite">
-        {caption ? (
-          <div className="caption">
-            <span className="caption-role">{captionLabel}</span>
-            <p>{caption}</p>
-          </div>
-        ) : null}
-        {notice ? <div className="notice">{notice}</div> : null}
+      <main className="hud-main">
+        <HudLeftPanels metrics={metrics} />
+        <section className="hud-stage" aria-live="polite">
+          <HudOrb load={metrics?.cpu ?? 0} mode={orbActivity} satellites={satelliteAgents} onZoom={setNodeZoom} />
+          <NodeWords words={nodeWords} zoom={nodeZoom} capacity={nodeCapacity} mode={orbActivity} />
+          <div className="hud-core-caption">CORE STABLE Â· {metrics ? metrics.freq.toFixed(2) : "â€”"} GHZ</div>
+          {caption ? (
+            <div className="hud-caption">
+              <span>{captionLabel}</span>
+              <p>{caption}</p>
+            </div>
+          ) : null}
+          {notice ? <div className="hud-notice">{notice}</div> : null}
+        </section>
+        <HudRightPanels metrics={metrics} />
       </main>
 
-      <AgentsPanel />
-
+      {agentsOpen ? <AgentsPanel /> : null}
       {boardOpen ? <Board /> : null}
       {logsOpen ? <LogsPanel onClose={() => setLogsOpen(false)} /> : null}
       {agentChat ? <AgentChatModal /> : null}
       <AgentEditor />
       {!settings.onboarded ? <Onboarding onComplete={() => void connect()} /> : null}
 
-      <footer className="dock">
+      <footer className="dock hud-dock">
         {recording || transcribing ? (
           <div className={`recording-pill ${transcribing ? "is-transcribing" : ""}`} role="status">
             <i />
             {transcribing
-              ? "TRANSCRIBIENDO…"
+              ? "TRANSCRIBIENDOÃ¢â‚¬Â¦"
               : recordingMode === "latched"
-                ? "GRABANDO · CLIC PARA PARAR"
-                : "GRABANDO · SUELTA PARA ENVIAR"}
+                ? "GRABANDO Ã‚Â· CLIC PARA PARAR"
+                : "GRABANDO Ã‚Â· SUELTA PARA ENVIAR"}
           </div>
         ) : null}
 
@@ -1712,7 +1714,7 @@ export default function App() {
                   onClick={() => removeAttachment(filePath)}
                   aria-label={`Quitar ${fileNameFromPath(filePath)}`}
                 >
-                  ×
+                  Ãƒâ€”
                 </button>
               </span>
             ))}
@@ -1751,7 +1753,7 @@ export default function App() {
             className="composer-input"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder={connected ? "Habla con JARVIS…" : "Conecta JARVIS para empezar"}
+            placeholder={connected ? "Habla con JARVIS..." : "Conecta JARVIS para empezar"}
             disabled={!connected}
             autoComplete="off"
             spellCheck={false}
@@ -1775,9 +1777,9 @@ export default function App() {
         </form>
 
         <div className="meta-row">
-          <span>{settings.elevenLabsKey ? "VOZ · ELEVENLABS" : "VOZ · SIN KEY"}</span>
-          <span>JARVIS · CORE</span>
-          <span className="hint">ESPACIO MANTENER PARA HABLAR · ESC CANCELAR</span>
+          <span>{settings.elevenLabsKey ? "VOZ Ã‚Â· ELEVENLABS" : "VOZ Ã‚Â· SIN KEY"}</span>
+          <span>JARVIS Ã‚Â· CORE</span>
+          <span className="hint">ESPACIO MANTENER PARA HABLAR Ã‚Â· ESC CANCELAR</span>
         </div>
       </footer>
 
@@ -1789,7 +1791,7 @@ export default function App() {
             <h1>J.A.R.V.I.S.</h1>
             <p>
               {connection === "connecting"
-                ? "Estableciendo enlace con JARVIS…"
+                ? "Estableciendo enlace con JARVISÃ¢â‚¬Â¦"
                 : connection === "error"
                   ? connectionDetail || "No se pudo conectar con JARVIS."
                   : "Un orbe vivo para JARVIS. Voz, texto y audio en tiempo real."}
@@ -1800,7 +1802,7 @@ export default function App() {
               onClick={() => void connect()}
               disabled={connection === "connecting"}
             >
-              {connection === "connecting" ? "Conectando…" : "Conectar a JARVIS"}
+              {connection === "connecting" ? "ConectandoÃ¢â‚¬Â¦" : "Conectar a JARVIS"}
             </button>
             <button type="button" className="ghost" onClick={() => setSettingsOpen(true)}>
               Configurar JARVIS y voz
@@ -1808,7 +1810,7 @@ export default function App() {
             <small className="gate-hint">
               Hermes local: <code>http://127.0.0.1:8643/v1</code>
             </small>
-            {!micSupported ? <small>Micrófono no disponible; el chat de texto sí funciona.</small> : null}
+            {!micSupported ? <small>MicrÃƒÂ³fono no disponible; el chat de texto sÃƒÂ­ funciona.</small> : null}
           </div>
         </div>
       ) : null}
