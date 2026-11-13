@@ -42,9 +42,18 @@ export class Orb {
   private readonly nucleusMaterial: THREE.ShaderMaterial;
   private readonly halo: THREE.Mesh;
   private readonly haloMaterial: THREE.ShaderMaterial;
-  private readonly networkGroup: THREE.Group;
-  private readonly networkMaterial: THREE.LineBasicMaterial;
-  private readonly networkPointMaterial: THREE.PointsMaterial;
+  private readonly orbitGroups: THREE.Group[] = [];
+  private readonly orbitMaterials: THREE.PointsMaterial[] = [];
+  private readonly satelliteGroup: THREE.Group;
+  private readonly satellites: Array<{
+    mesh: THREE.Mesh;
+    beam: THREE.Line;
+    beamMaterial: THREE.LineBasicMaterial;
+    meshMaterial: THREE.MeshBasicMaterial;
+    angle: number;
+    speed: number;
+  }> = [];
+  private activityMode: "idle" | "thinking" | "acting" | "speaking" = "idle";
 
   private readonly colorA = new THREE.Color(PALETTES.idle.a);
   private readonly colorB = new THREE.Color(PALETTES.idle.b);
@@ -166,37 +175,44 @@ export class Orb {
     this.halo.position.set(0, 0, -1.4);
     this.scene.add(this.halo);
 
-    const network = buildNetwork();
-    const networkGeometry = new THREE.BufferGeometry();
-    networkGeometry.setAttribute("position", new THREE.BufferAttribute(network.positions, 3));
-    this.networkMaterial = new THREE.LineBasicMaterial({
-      color: 0x55dfff,
-      transparent: true,
-      opacity: 0.12,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const networkLines = new THREE.LineSegments(networkGeometry, this.networkMaterial);
-    networkLines.frustumCulled = false;
+    this.satelliteGroup = new THREE.Group();
+    this.scene.add(this.satelliteGroup);
 
-    const nodeGeometry = new THREE.BufferGeometry();
-    nodeGeometry.setAttribute("position", new THREE.BufferAttribute(network.nodePositions, 3));
-    this.networkPointMaterial = new THREE.PointsMaterial({
-      color: 0x9ff7ff,
-      size: 0.018,
-      transparent: true,
-      opacity: 0.68,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      sizeAttenuation: true,
-    });
-    const networkNodes = new THREE.Points(nodeGeometry, this.networkPointMaterial);
-    networkNodes.frustumCulled = false;
-
-    this.networkGroup = new THREE.Group();
-    this.networkGroup.add(networkLines, networkNodes);
-    this.scene.add(this.networkGroup);
-
+    const orbitSpecs = [
+      { radius: 1.28, count: 120, tiltX: 0.42, tiltZ: 0.08, size: 0.014 },
+      { radius: 1.58, count: 150, tiltX: -0.55, tiltZ: 0.3, size: 0.012 },
+      { radius: 1.9, count: 180, tiltX: 0.82, tiltZ: -0.18, size: 0.01 },
+    ];
+    for (const spec of orbitSpecs) {
+      const positions = new Float32Array(spec.count * 3);
+      for (let i = 0; i < spec.count; i += 1) {
+        const angle = (i / spec.count) * Math.PI * 2 + (Math.random() - 0.5) * 0.04;
+        const radius = spec.radius + (Math.random() - 0.5) * 0.06;
+        positions[i * 3] = Math.cos(angle) * radius;
+        positions[i * 3 + 1] = (Math.random() - 0.5) * 0.035;
+        positions[i * 3 + 2] = Math.sin(angle) * radius;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0x6fe6ff,
+        size: spec.size,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
+      });
+      const points = new THREE.Points(geometry, material);
+      points.frustumCulled = false;
+      const group = new THREE.Group();
+      group.rotation.x = spec.tiltX;
+      group.rotation.z = spec.tiltZ;
+      group.add(points);
+      this.scene.add(group);
+      this.orbitGroups.push(group);
+      this.orbitMaterials.push(material);
+    }
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.5, 0.45, 0.3);
@@ -222,6 +238,55 @@ export class Orb {
     this.targetC.setHex(palette.c);
   }
 
+  setActivityMode(mode: "idle" | "thinking" | "acting" | "speaking"): void {
+    this.activityMode = mode;
+  }
+
+  setSatellites(agents: Array<{ id?: string; name?: string }>): void {
+    for (const satellite of this.satellites) {
+      satellite.mesh.geometry.dispose();
+      satellite.meshMaterial.dispose();
+      satellite.beam.geometry.dispose();
+      satellite.beamMaterial.dispose();
+    }
+    this.satelliteGroup.clear();
+    this.satellites.length = 0;
+
+    const unique = agents.filter((agent, index) => agents.findIndex((item) => item.id === agent.id) === index).slice(0, 4);
+    unique.forEach((_agent, index) => {
+      const meshMaterial = new THREE.MeshBasicMaterial({
+        color: this.colorA,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), meshMaterial);
+      mesh.frustumCulled = false;
+
+      const beamMaterial = new THREE.LineBasicMaterial({
+        color: this.colorA,
+        transparent: true,
+        opacity: 0.3,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const beamGeometry = new THREE.BufferGeometry();
+      beamGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+      const beam = new THREE.Line(beamGeometry, beamMaterial);
+      beam.frustumCulled = false;
+
+      this.satelliteGroup.add(mesh, beam);
+      this.satellites.push({
+        mesh,
+        beam,
+        beamMaterial,
+        meshMaterial,
+        angle: (index / Math.max(1, unique.length)) * Math.PI * 2,
+        speed: 0.08 + index * 0.025,
+      });
+    });
+  }
   dispose(): void {
     this.running = false;
     cancelAnimationFrame(this.frame);
@@ -236,13 +301,21 @@ export class Orb {
     this.nucleusMaterial.dispose();
     this.halo.geometry.dispose();
     this.haloMaterial.dispose();
-    this.networkGroup.traverse((object) => {
-      if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
-        object.geometry.dispose();
-        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-        else object.material.dispose();
-      }
-    });
+    const disposeGroup = (group: THREE.Group): void => {
+      group.traverse((object) => {
+        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
+          object.geometry.dispose();
+          if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+          else object.material.dispose();
+        }
+      });
+      this.scene.remove(group);
+    };
+    this.orbitGroups.forEach(disposeGroup);
+    this.orbitGroups.length = 0;
+    this.orbitMaterials.length = 0;
+    disposeGroup(this.satelliteGroup);
+    this.satellites.length = 0;
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -338,12 +411,36 @@ export class Orb {
 
     this.zoom += (this.targetZoom - this.zoom) * Math.min(1, delta * 4.5);
     this.camera.position.z = this.zoom;
-    this.networkGroup.rotation.y = t * 0.035 * speed;
-    this.networkGroup.rotation.x = Math.sin(t * 0.08) * 0.16;
-    this.networkGroup.rotation.z = Math.cos(t * 0.06) * 0.08;
-    this.networkMaterial.color.copy(this.colorA).lerp(this.colorC, 0.24);
-    this.networkMaterial.opacity = 0.12 + this.level * 0.12;
+    const orbitSpeed =
+      this.activityMode === "acting" ? 2.4 : this.activityMode === "speaking" ? 1.8 : this.activityMode === "thinking" ? 1 : 0.5;
+    this.orbitGroups.forEach((group, index) => {
+      const direction = index % 2 === 0 ? 1 : -1;
+      group.rotation.y += delta * (0.035 + index * 0.012) * direction * orbitSpeed;
+      group.rotation.x += Math.sin(t * 0.16 + index) * delta * 0.012 * orbitSpeed;
+      group.rotation.z += Math.cos(t * 0.12 + index) * delta * 0.009 * orbitSpeed;
+      group.scale.setScalar(1 + Math.sin(t * 0.8 + index) * 0.018 * orbitSpeed);
+    });
+    this.orbitMaterials.forEach((material) => {
+      material.color.copy(this.colorA);
+      material.opacity = 0.5 + this.level * 0.25;
+    });
 
+    for (const satellite of this.satellites) {
+      satellite.angle += delta * satellite.speed * orbitSpeed;
+      const radius = 2.05;
+      const x = Math.cos(satellite.angle) * radius;
+      const y = Math.sin(satellite.angle * 1.7) * 0.3;
+      const z = Math.sin(satellite.angle) * radius;
+      satellite.mesh.position.set(x, y, z);
+      satellite.meshMaterial.color.copy(this.colorA).lerp(this.colorC, 0.4);
+      satellite.mesh.scale.setScalar(1 + Math.sin(t * 4 + satellite.angle) * 0.16);
+      const beamPositions = satellite.beam.geometry.getAttribute("position") as THREE.BufferAttribute;
+      beamPositions.setXYZ(0, 0, 0, 0);
+      beamPositions.setXYZ(1, x, y, z);
+      beamPositions.needsUpdate = true;
+      satellite.beamMaterial.color.copy(this.colorA);
+      satellite.beamMaterial.opacity = 0.18 + (Math.sin(t * 5 + satellite.angle) + 1) * 0.12;
+    }
     this.points.rotation.y += delta * (0.06 + this.level * 0.12) * speed;
     this.points.rotation.x = Math.sin(t * 0.12) * 0.12;
     this.points.rotation.z = Math.cos(t * 0.09) * 0.05;
@@ -380,36 +477,4 @@ function buildSphere(count: number, small: boolean): { positions: Float32Array; 
   }
 
   return { positions, seeds };
-}
-
-function buildNetwork(): { positions: Float32Array; nodePositions: Float32Array } {
-  const count = 64;
-  const nodes: Array<[number, number, number]> = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < count; i += 1) {
-    const y = 1 - (i / Math.max(1, count - 1)) * 2;
-    const radius = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = golden * i;
-    const r = 1.22 + Math.random() * 0.24;
-    nodes.push([Math.cos(theta) * radius * r, y * r, Math.sin(theta) * radius * r]);
-  }
-
-  const segments: number[] = [];
-  const push = (from: [number, number, number], to: [number, number, number]): void => {
-    segments.push(from[0], from[1], from[2], to[0], to[1], to[2]);
-  };
-
-  for (let i = 0; i < count; i += 1) {
-    for (let j = i + 1; j < count; j += 1) {
-      const dx = nodes[i][0] - nodes[j][0];
-      const dy = nodes[i][1] - nodes[j][1];
-      const dz = nodes[i][2] - nodes[j][2];
-      if (dx * dx + dy * dy + dz * dz < 0.82) push(nodes[i], nodes[j]);
-    }
-  }
-
-  return {
-    positions: new Float32Array(segments),
-    nodePositions: new Float32Array(nodes.flatMap((node) => node)),
-  };
 }

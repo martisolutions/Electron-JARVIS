@@ -257,6 +257,15 @@ export default function App() {
   const connected = connection === "connected";
   const busy = orb === "thinking" || orb === "speaking";
   const anyRunning = Object.values(agents).some((agent) => agent.status === "running");
+  const anySubagentRunning = Object.values(agents).some((agent) => agent.id !== "jarvis" && agent.status === "running");
+  const orbActivity = orb === "speaking" ? "speaking" : anySubagentRunning ? "acting" : orb === "thinking" ? "thinking" : "idle";
+  const satelliteAgents = useMemo(() => {
+    const list = Object.values(agents).filter((agent) => agent.id !== "jarvis" && agent.status === "running");
+    const openAgent = agentChat ? agents[agentChat] : null;
+    if (openAgent && openAgent.id !== "jarvis" && !list.some((agent) => agent.id === openAgent.id)) list.push(openAgent);
+    return list.slice(0, 4).map((agent) => ({ id: agent.id, name: agent.name }));
+  }, [agents, agentChat]);
+  const satelliteKey = satelliteAgents.map((agent) => agent.id).join("|");
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const lastMessage = messages[messages.length - 1];
   const awaitingReply = lastMessage?.role === "user";
@@ -359,6 +368,14 @@ export default function App() {
   useEffect(() => {
     orbRef.current?.setState(orb);
   }, [orb]);
+
+  useEffect(() => {
+    orbRef.current?.setActivityMode(orbActivity);
+  }, [orbActivity]);
+
+  useEffect(() => {
+    orbRef.current?.setSatellites(satelliteAgents);
+  }, [satelliteKey]);
 
   useEffect(() => {
     const seed = useStore.getState().settings;
@@ -1610,7 +1627,7 @@ export default function App() {
     <div className="app" data-state={orb}>
       <div className="stage-bg" ref={stageRef} aria-hidden="true" />
       <div className="veil" aria-hidden="true" />
-      <NodeWords words={nodeWords} zoom={nodeZoom} />
+      <NodeWords words={nodeWords} zoom={nodeZoom} mode={orbActivity} />
 
       <header className="topbar">
         <div className="brand">
