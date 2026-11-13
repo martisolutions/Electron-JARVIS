@@ -578,6 +578,167 @@ function addNodeWord(input) {
   broadcastNodeWords();
   return entry;
 }
+const CALENDAR_LIMIT = 500;
+let calendarEvents = [];
+let calendarFile = "";
+const calendarTimers = new Map();
+
+function initCalendarStore() {
+  if (!calendarFile) calendarFile = path.join(app.getPath("userData"), "calendar.json");
+  try {
+    const raw = JSON.parse(fs.readFileSync(calendarFile, "utf8"));
+    calendarEvents = Array.isArray(raw?.events) ? raw.events.map(normalizeStoredEvent).filter(Boolean) : [];
+  } catch {
+    calendarEvents = [];
+  }
+  scheduleAllCalendarEvents();
+}
+
+function saveCalendarStore() {
+  try {
+    fs.mkdirSync(path.dirname(calendarFile), { recursive: true });
+    fs.writeFileSync(calendarFile, JSON.stringify({ events: calendarEvents }, null, 2), "utf8");
+  } catch (error) {
+    console.log("[calendar-save]", error);
+  }
+}
+
+function normalizeStoredEvent(value) {
+  if (!value || typeof value !== "object") return null;
+  const id = sanitizePanelText(value.id, 80).trim();
+  const title = sanitizePanelText(value.title, 160).trim();
+  const start = new Date(value.start);
+  if (!id || !title || Number.isNaN(start.getTime())) return null;
+  const end = value.end ? new Date(value.end) : new Date(start.getTime() + 3_600_000);
+  return {
+    id,
+    title,
+    description: sanitizePanelText(value.description, 2000),
+    location: sanitizePanelText(value.location, 300),
+    start: start.toISOString(),
+    end: (Number.isNaN(end.getTime()) ? new Date(start.getTime() + 3_600_000) : end).toISOString(),
+    alertMinutes: Math.max(0, Math.min(10_080, Number(value.alertMinutes) || 0)),
+    notifiedAt: typeof value.notifiedAt === "number" ? value.notifiedAt : null,
+    createdAt: Number(value.createdAt) || Date.now(),
+    updatedAt: Number(value.updatedAt) || Date.now(),
+  };
+}
+
+function normalizeCalendarInput(input, existing = {}) {
+  const title = sanitizePanelText(input.title ?? existing.title ?? "", 160).trim();
+  if (!title) throw new Error("Falta el título del evento.");
+  const startValue = input.start ?? existing.start;
+  const start = new Date(startValue);
+  if (Number.isNaN(start.getTime())) throw new Error("Fecha de inicio no válida.");
+  const endValue = input.end ?? existing.end;
+  const end = endValue ? new Date(endValue) : new Date(start.getTime() + 3_600_000);
+  if (Number.isNaN(end.getTime()) || end < start) throw new Error("Fecha de fin no válida.");
+  const alertMinutes = Number(input.alertMinutes ?? input.alert_minutes ?? existing.alertMinutes ?? 10);
+  return {
+    title,
+    description: sanitizePanelText(input.description ?? existing.description ?? "", 2000),
+    location: sanitizePanelText(input.location ?? existing.location ?? "", 300),
+    start: start.toISOString(),
+    end: end.toISOString(),
+    alertMinutes: Math.max(0, Math.min(10_080, Number.isFinite(alertMinutes) ? alertMinutes : 10)),
+  };
+}
+
+function calendarSnapshot() {
+  return [...calendarEvents].sort((left, right) => Date.parse(left.start) - Date.parse(right.start));
+}
+
+function broadcastCalendar() {
+  const events = calendarSnapshot();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("calendar:changed", { events });
+  }
+}
+
+function clearCalendarTimer(id) {
+  const timer = calendarTimers.get(id);
+  if (timer) clearTimeout(timer);
+  calendarTimers.delete(id);
+}
+
+function scheduleCalendarEvent(event) {
+  clearCalendarTimer(event.id);
+  if (event.notifiedAt) return;
+  const start = Date.parse(event.start);
+  if (!Number.isFinite(start) || start <= Date.now()) return;
+  const alertAt = start - event.alertMinutes * 60_000;
+  const delay = Math.max(0, alertAt - Date.now());
+  const timer = setTimeout(() => {
+    calendarTimers.delete(event.id);
+    const current = calendarEvents.find((item) => item.id === event.id);
+    if (!current || current.notifiedAt) return;
+    if (Date.parse(current.start) + 5 * 60_000 <= Date.now()) return;
+    current.notifiedAt = Date.now();
+    current.updatedAt = Date.now();
+    saveCalendarStore();
+    const when = new Date(current.start).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    const message =
+      current.alertMinutes > 0
+        ? `En ${current.alertMinutes} minutos: ${current.title}, a las ${when}.`
+        : `Ahora: ${current.title}.`;
+    const payload = { id: current.id, title: current.title, message, startsAt: current.start };
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send("calendar:alert", payload);
+    }
+    try {
+      new Notification({ title: "JARVIS · Calendario", body: message }).show();
+    } catch {
+      /* notifications are best-effort */
+    }
+    broadcastCalendar();
+  }, Math.min(delay, 2_147_000_000));
+  calendarTimers.set(event.id, timer);
+}
+
+function scheduleAllCalendarEvents() {
+  for (const id of calendarTimers.keys()) clearCalendarTimer(id);
+  for (const event of calendarEvents) scheduleCalendarEvent(event);
+}
+
+function createCalendarEvent(input) {
+  const now = Date.now();
+  const data = normalizeCalendarInput(input || {});
+  const event = {
+    id: `evt-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    ...data,
+    notifiedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  calendarEvents = [...calendarEvents, event].slice(-CALENDAR_LIMIT);
+  saveCalendarStore();
+  scheduleCalendarEvent(event);
+  broadcastCalendar();
+  return event;
+}
+
+function updateCalendarEvent(id, input) {
+  const index = calendarEvents.findIndex((event) => event.id === id);
+  if (index === -1) return null;
+  const existing = calendarEvents[index];
+  const data = normalizeCalendarInput(input || {}, existing);
+  const event = { ...existing, ...data, notifiedAt: null, updatedAt: Date.now() };
+  calendarEvents = calendarEvents.map((item, itemIndex) => (itemIndex === index ? event : item));
+  saveCalendarStore();
+  scheduleCalendarEvent(event);
+  broadcastCalendar();
+  return event;
+}
+
+function deleteCalendarEvent(id) {
+  const before = calendarEvents.length;
+  calendarEvents = calendarEvents.filter((event) => event.id !== id);
+  clearCalendarTimer(id);
+  if (calendarEvents.length === before) return false;
+  saveCalendarStore();
+  broadcastCalendar();
+  return true;
+}
 const ARTIFACT_EXTENSIONS = new Set([".ics", ".ical", ".lnk", ".url"]);
 let artifactSeenFile = "";
 let artifactSeen = {};
@@ -683,6 +844,10 @@ function findArtifact(id) {
   return artifactSnapshot().artifacts.find((entry) => entry.id === id) || null;
 }
 
+ipcMain.handle("calendar:list", () => ({ events: calendarSnapshot() }));
+ipcMain.handle("calendar:create", (_event, input) => createCalendarEvent(input));
+ipcMain.handle("calendar:update", (_event, id, input) => updateCalendarEvent(String(id || ""), input));
+ipcMain.handle("calendar:delete", (_event, id) => deleteCalendarEvent(String(id || "")));
 ipcMain.handle("artifacts:list", () => artifactSnapshot());
 ipcMain.handle("artifacts:seen", (_event, id) => markArtifactSeen(String(id || "")));
 ipcMain.handle("artifacts:open", async (_event, id) => {
@@ -962,6 +1127,47 @@ function startPanelApi() {
         sendPanelJson(response, 400, { error: error.message || "Palabra no válida." });
       }
       return;
+    }
+    if (pathname === "/events" && request.method === "GET") {
+      sendPanelJson(response, 200, { object: "list", events: calendarSnapshot() });
+      return;
+    }
+
+    if (pathname === "/events" && request.method === "POST") {
+      try {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          sendPanelJson(response, 400, { error: "Se esperaba un objeto JSON." });
+          return;
+        }
+        sendPanelJson(response, 201, createCalendarEvent(body));
+      } catch (error) {
+        sendPanelJson(response, 400, { error: error.message || "Evento no válido." });
+      }
+      return;
+    }
+
+    const eventMatch = /^\/events\/([^/]+)$/.exec(pathname);
+    if (eventMatch) {
+      const id = decodeURIComponent(eventMatch[1]);
+      if (request.method === "PATCH") {
+        try {
+          const body = await readJsonBody(request);
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            sendPanelJson(response, 400, { error: "Se esperaba un objeto JSON." });
+            return;
+          }
+          const event = updateCalendarEvent(id, body);
+          sendPanelJson(response, event ? 200 : 404, event || { error: "Evento no encontrado." });
+        } catch (error) {
+          sendPanelJson(response, 400, { error: error.message || "Evento no válido." });
+        }
+        return;
+      }
+      if (request.method === "DELETE") {
+        sendPanelJson(response, deleteCalendarEvent(id) ? 200 : 404, { ok: deleteCalendarEvent(id) });
+        return;
+      }
     }
     if (pathname === "/panels" && request.method === "GET") {
       sendPanelJson(response, 200, { object: "list", ...panelSnapshot() });
@@ -1278,6 +1484,7 @@ if (!gotTheLock) {
     const ses = session.defaultSession;
 
     initNodeStore();
+    initCalendarStore();
     initPanelStore();
     startPanelApi();
     app.on("before-quit", () => {

@@ -31,6 +31,15 @@ export const DEFAULT_AGENT_CONFIGS: AgentConfig[] = [
       "Cuando Jordi pida abrir o navegar una web, buscar en una pÃ¡gina, hacer clic, rellenar un formulario o usar el navegador, delega en VISIÃ“N con un goal que empiece por 'VISIÃ“N:' y describa la URL y los datos exactos; no lo intentes tÃº. VISIÃ“N debe usar la Hermes Browser Extension y sus herramientas tab_* (tab_list, tab_create, tab_navigate, tab_snapshot, tab_click, tab_type, tab_fill, tab_scroll, etc.) sobre una pestaÃ±a adjunta o autorizada. No debe ejecutar chrome.exe, abrir Chrome por terminal ni usar browser_exec. Si no hay una pestaÃ±a adjunta, debe detenerse y pedir a Jordi que adjunte una pestaÃ±a desde la extensiÃ³n; no cambies credenciales. Si VISIÃ“N reporta un problema de inicio de sesiÃ³n o cookies, no reintentes: dile a Jordi que lo corrija y espera. El goal debe ser breve y concreto; VISIÃ“N puede abrir pestaÃ±as de fondo si la extensiÃ³n lo permite, debe traer al primer plano solo cuando la acciÃ³n lo requiera y, si cierra la pestaÃ±a, entregar lo recopilado y decirlo.",
   },
   {
+    id: "calendar",
+    name: "CALENDARIO",
+    role: "Eventos y avisos",
+    trigger: "CALENDARIO",
+    enabled: true,
+    builtin: true,
+    instructions:
+      "Cuando Jordi pida crear, editar, borrar, consultar o programar eventos y avisos de calendario, delega en CALENDARIO con un goal que empiece por 'CALENDARIO:'. CALENDARIO usa la API local http://127.0.0.1:5191: GET /events para listar, POST /events para crear y PATCH/DELETE /events/{id} para editar o borrar. Cada evento debe incluir title, start (ISO local), end opcional, description, location y alertMinutes (minutos antes del inicio para avisar). Si Jordi no indica aviso, usa 10 minutos. Confirma el evento y el aviso en una frase; no inventes fechas.",
+  },  {
     id: "panels",
     name: "PANELES",
     role: "Tablero y API",
@@ -129,6 +138,7 @@ export function agentTargetForGoal(
 
 export function delegationAck(target: { id: string } | null | undefined): string {
   if (target?.id === "panels") return "Voy a preparar el panel.";
+  if (target?.id === "calendar") return "Voy a preparar el calendario.";
   if (target?.id === "taric") return "Voy a comprobar el cÃ³digo TARIC y el arancel.";
   if (target?.id === "vision") return "Voy a comprobar la web o la pantalla.";
   return "Voy a comprobar eso.";

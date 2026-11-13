@@ -60,6 +60,10 @@ export function loadSettings(): Settings {
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const storedSessionId = str(parsed.sessionId, DEFAULT_SETTINGS.sessionId).trim();
     const agentConfigs = normalizeAgentConfigs(parsed.agentConfigs);
+    const calendarDefault = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === "calendar");
+    if (calendarDefault && !agentConfigs.some((agent) => agent.id === "calendar")) {
+      agentConfigs.push({ ...calendarDefault });
+    }
     const visionDefault = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === "vision");
     if (visionDefault) {
       for (const agent of agentConfigs) {

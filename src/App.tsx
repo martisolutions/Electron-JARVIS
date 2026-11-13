@@ -3,11 +3,12 @@ import { AgentChatModal } from "./components/AgentChatModal";
 import { Clock } from "./components/Clock";
 import { AgentEditor } from "./components/AgentEditor";
 import { Board } from "./components/Board";
+import { CalendarPanel } from "./components/CalendarPanel";
 import { LogsPanel } from "./components/LogsPanel";
 import { NodeWords } from "./components/NodeWords";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { AttachmentIcon, BoardIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AttachmentIcon, BoardIcon, CalendarIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
 import { AudioEngine } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
@@ -16,7 +17,7 @@ import { errorMessage, friendlyError, sanitizeForSpeech } from "./lib/text";
 import { HudOrb } from "./components/HudOrb";
 import { HudLeftPanels, HudRightPanels, HudUptime } from "./components/HudPanels";
 import { useStore } from "./store";
-import type { AgentCard, BillingSnapshot, ConnectionState, NodeWord, OrbVisualState, SystemMetrics } from "./types";
+import type { AgentCard, BillingSnapshot, CalendarAlert, ConnectionState, NodeWord, OrbVisualState, SystemMetrics } from "./types";
 
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
@@ -238,6 +239,7 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [logsOpen, setLogsOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [billing, setBilling] = useState<BillingSnapshot | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
@@ -429,6 +431,21 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
+  }, []);
+  useEffect(() => {
+    const bridge = (window as unknown as {
+      jarvisDesktop?: { onCalendarAlert?: (callback: (alert: CalendarAlert) => void) => () => void };
+    }).jarvisDesktop;
+    if (!bridge?.onCalendarAlert) return;
+    return bridge.onCalendarAlert((alert) => {
+      const message = typeof alert?.message === "string" ? alert.message.trim() : "";
+      if (!message) return;
+      const store = useStore.getState();
+      store.addMessage("assistant", message);
+      if (!hermesRef.current) hermesRef.current = new HermesClient(store.settings);
+      void audioRef.current?.ensure().catch(() => undefined);
+      void speakText(message);
+    });
   }, []);
   useEffect(() => {
     if (sessionStorage.getItem("jarvis.welcomePlayed") === "1") return;
@@ -1671,6 +1688,9 @@ export default function App() {
           <span className="hud-uptime-wrap">
             <i /> ONLINE Â· T+<HudUptime metrics={metrics} />
           </span>
+          <button type="button" className="icon-btn calendar-btn" onClick={() => setCalendarOpen(true)} aria-label="Calendario" title="Calendario">
+            <CalendarIcon />
+          </button>
           <button
             type="button"
             className={`icon-btn stop-everything ${anyRunning || busy ? "is-active" : ""}`}
@@ -1709,6 +1729,7 @@ export default function App() {
         <HudRightPanels metrics={metrics} billing={billing} />
       </main>
 
+      {calendarOpen ? <CalendarPanel onClose={() => setCalendarOpen(false)} /> : null}
       {boardOpen ? <Board /> : null}
       {logsOpen ? <LogsPanel onClose={() => setLogsOpen(false)} /> : null}
       {agentChat ? <AgentChatModal /> : null}

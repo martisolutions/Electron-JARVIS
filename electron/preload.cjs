@@ -16,6 +16,20 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   markArtifactSeen: (id) => ipcRenderer.invoke("artifacts:seen", id),
   openArtifact: (id) => ipcRenderer.invoke("artifacts:open", id),
   revealArtifact: (id) => ipcRenderer.invoke("artifacts:reveal", id),
+  listCalendarEvents: () => ipcRenderer.invoke("calendar:list"),
+  createCalendarEvent: (input) => ipcRenderer.invoke("calendar:create", input),
+  updateCalendarEvent: (id, input) => ipcRenderer.invoke("calendar:update", id, input),
+  deleteCalendarEvent: (id) => ipcRenderer.invoke("calendar:delete", id),
+  onCalendarChanged: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("calendar:changed", listener);
+    return () => ipcRenderer.removeListener("calendar:changed", listener);
+  },
+  onCalendarAlert: (callback) => {
+    const listener = (_event, alert) => callback(alert);
+    ipcRenderer.on("calendar:alert", listener);
+    return () => ipcRenderer.removeListener("calendar:alert", listener);
+  },
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   listNodeWords: () => ipcRenderer.invoke("node:list"),
   addNodeWord: (input) => ipcRenderer.invoke("node:add", input),

@@ -107,6 +107,25 @@ export type SystemMetrics = {
   diskWrite: number;
   uptime: number;
 };
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  start: string;
+  end: string;
+  alertMinutes: number;
+  notifiedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CalendarAlert = {
+  id: string;
+  title: string;
+  message: string;
+  startsAt: string;
+};
 export type ArtifactItem = {
   id: string;
   path: string;
