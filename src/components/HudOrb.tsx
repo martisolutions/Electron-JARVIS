@@ -97,6 +97,9 @@ export function HudOrb({ load, mode, visual, level, satellites, delegationPulse,
     const glowTexture = makeGlowTexture();
     const additive = THREE.AdditiveBlending;
     const activeColor = new THREE.Color(visualRef.current.color);
+    const targetColor = new THREE.Color(visualRef.current.color);
+    let smoothedLevel = 0;
+    let currentScale = visualRef.current.expansion;
     const coloredMaterials: THREE.Material[] = [];
     const randomDirection = (): THREE.Vector3 => {
       const vector = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
@@ -367,16 +370,20 @@ export function HudOrb({ load, mode, visual, level, satellites, delegationPulse,
       const currentMode = modeRef.current;
       const speed =
         currentMode === "delegated" ? 0.75 : currentMode === "talking" ? 1.25 : currentMode === "thinking" ? 0.8 : 0.36;
-      const expansion = visualRef.current.expansion * (currentMode === "talking" ? 1 + levelRef.current() * 0.32 : 1);
+      smoothedLevel += (levelRef.current() - smoothedLevel) * Math.min(1, delta * 7);
+      const expansion = visualRef.current.expansion * (currentMode === "talking" ? 1 + smoothedLevel * 0.32 : 1);
       const pulse = currentMode === "thinking" ? 1 + Math.sin(time * 1.8) * 0.035 : 1;
-      activeColor.set(visualRef.current.color);
+      targetColor.set(visualRef.current.color);
+      activeColor.lerp(targetColor, Math.min(1, delta * 3.5));
       coloredMaterials.forEach((material) => {
         const tinted = material as THREE.Material & { color?: THREE.Color };
         tinted.color?.copy(activeColor);
       });
       burstBeamMaterial.color.copy(activeColor);
       burstRingMaterial.color.copy(activeColor);
-      orb.scale.setScalar(expansion * pulse);
+      const targetScale = expansion * pulse;
+      currentScale += (targetScale - currentScale) * (1 - Math.exp(-delta * 6));
+      orb.scale.setScalar(currentScale);
       spin += delta * (0.18 + 0.5 * currentLoad) * speed;
       orb.rotation.set(rotationX, spin + rotationY, 0);
       cloud.scale.setScalar(1 + 0.025 * Math.sin(time * 2) + 0.05 * currentLoad);
