@@ -52,6 +52,7 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
   const [voiceId, setVoiceId] = useState(settings.voiceId);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState("");
+  const [saved, setSaved] = useState(false);
 
   async function detectLocal(): Promise<void> {
     const bridge = (window as unknown as DetectBridge).jarvisDesktop;
@@ -92,6 +93,12 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
       },
     });
   };
+  function save(): void {
+    apply();
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2500);
+  }
+
   const apply = (): void => {
     setSettings({
       hermesUrl: hermesUrl.trim() || settings.hermesUrl,
@@ -238,7 +245,12 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
           })}
         </div>
 
+        {saved ? <p className="settings-saved">Configuración guardada.</p> : null}
+
         <div className="settings-actions">
+          <button type="button" className="ghost small" onClick={save}>
+            Guardar configuración
+          </button>
           <button
             type="button"
             className="primary small"

@@ -3516,3 +3516,14 @@ code,
   border-color: rgba(255, 190, 90, 0.5);
   color: #ffe0a6;
 }
+.settings-saved {
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(127, 243, 216, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 40, 34, 0.45);
+  color: #a8f5de;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
