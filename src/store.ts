@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { agentCardsFromConfigs, normalizeAgentConfigs } from "./lib/agents";
 import { loadSettings, saveSettings, type Settings } from "./lib/settings";
-import type { AgentCard, AgentConfig, AgentLogEntry, ChatMessage, ConnectionState, OrbState } from "./types";
+import type { AgentActivity, AgentCard, AgentConfig, AgentLogEntry, ChatMessage, ConnectionState, OrbState } from "./types";
 
 type Store = {
   settings: Settings;
@@ -16,6 +16,7 @@ type Store = {
   agentEditor: string | "manage" | null;
   agents: Record<string, AgentCard>;
   agentLog: AgentLogEntry[];
+  activity: AgentActivity[];
   setSettings: (patch: Partial<Settings>) => void;
   setConnection: (connection: ConnectionState, detail?: string) => void;
   setOrb: (orb: OrbState) => void;
@@ -32,10 +33,12 @@ type Store = {
   resetAgents: (task: string) => void;
   patchAgent: (id: string, patch: Partial<AgentCard>) => void;
   logAgent: (text: string) => void;
+  logActivity: (agentId: string, kind: AgentActivity["kind"], text: string) => void;
 };
 
 let messageSeq = 0;
 let logSeq = 0;
+let activitySeq = 0;
 
 function newMessage(role: ChatMessage["role"], text: string): ChatMessage {
   messageSeq += 1;
@@ -57,6 +60,7 @@ export const useStore = create<Store>((set, get) => ({
   agentEditor: null,
   agents: agentCardsFromConfigs(initialSettings.agentConfigs),
   agentLog: [],
+  activity: [],
 
   setSettings: (patch) => {
     const next = { ...get().settings, ...patch };
@@ -114,7 +118,7 @@ export const useStore = create<Store>((set, get) => ({
       outputTokens: undefined,
       lastOperation: "Preparando respuesta…",
     };
-    set({ agents, agentLog: [] });
+    set({ agents, agentLog: [], activity: [] });
   },
 
   patchAgent: (id, patch) => {
@@ -131,4 +135,19 @@ export const useStore = create<Store>((set, get) => ({
     const entry: AgentLogEntry = { id: `l${Date.now()}-${logSeq}`, at: Date.now(), text: trimmed };
     set((state) => ({ agentLog: [...state.agentLog, entry].slice(-14) }));
   },
+
+  logActivity: (agentId, kind, text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    activitySeq += 1;
+    const entry: AgentActivity = {
+      id: `a${Date.now()}-${activitySeq}`,
+      at: Date.now(),
+      agentId,
+      kind,
+      text: trimmed,
+    };
+    set((state) => ({ activity: [...state.activity, entry].slice(-500) }));
+  },
 }));
+

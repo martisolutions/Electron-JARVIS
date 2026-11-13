@@ -3,9 +3,10 @@ import { AgentChatModal } from "./components/AgentChatModal";
 import { AgentEditor } from "./components/AgentEditor";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { Board } from "./components/Board";
+import { LogsPanel } from "./components/LogsPanel";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { AttachmentIcon, BoardIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AttachmentIcon, BoardIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
 import { AudioEngine, ZERO_LEVELS } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
@@ -230,6 +231,7 @@ export default function App() {
   const spaceDownRef = useRef(false);
   const maxTimerRef = useRef<number | null>(null);
 
+  const [logsOpen, setLogsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const attachmentsRef = useRef<string[]>([]);
@@ -950,6 +952,19 @@ export default function App() {
         }
         break;
       }
+      case "reasoning.available": {
+        const thought = asString(event.text);
+        if (thought) {
+          store.logActivity("jarvis", "think", thought);
+          store.patchAgent("jarvis", { lastOperation: `Razonamiento: ${truncateText(thought, 80)}` });
+        }
+        break;
+      }
+      case "message.interim": {
+        const interim = asString(event.text);
+        if (interim) store.logActivity("jarvis", "message", interim);
+        break;
+      }
       case "tool.started": {
         const tool = asString(event.tool);
         const preview = asString(event.preview);
@@ -957,16 +972,19 @@ export default function App() {
           status: "running",
           lastOperation: preview ? `${tool} · ${truncateText(preview, 80)}` : tool,
         });
+        store.logActivity("jarvis", "tool", preview ? `${tool}: ${preview}` : tool);
         if (tool === "delegate_task") startDelegation(preview, Date.now());
         break;
       }
       case "tool.completed": {
         const tool = asString(event.tool);
         const failed = event.error === true;
+        const preview = asString(event.preview);
         store.patchAgent("jarvis", { lastOperation: failed ? `${tool} · error` : `${tool} · completado` });
+        store.logActivity("jarvis", failed ? "error" : "result", preview ? `${tool}: ${preview}` : tool);
         if (tool === "delegate_task") {
           const active = activeDelegationRef.current;
-          if (active) store.patchAgent(active.id, { lastOperation: "Delegado · en segundo plano" });
+          if (active) store.patchAgent(active.id, { lastOperation: "Delegado ┬À en segundo plano" });
         }
         break;
       }
@@ -987,7 +1005,8 @@ export default function App() {
           startedAt,
           lastOperation: "Subagente iniciado",
         });
-        store.logAgent(`JARVIS → ${target.name}: ${truncateText(goal, 90)}`);
+        store.logActivity(target.id, "info", goal);
+        store.logAgent(`JARVIS ÔåÆ ${target.name}: ${truncateText(goal, 90)}`);
         break;
       }
       case "subagent.complete": {
@@ -1004,8 +1023,9 @@ export default function App() {
           lastOperation: status || "Completado",
         });
         store.logAgent(
-          `${target.name} → JARVIS: ${truncateText(asString(event.summary) || asString(event.output_tail) || "completado", 90)}`,
+          `${target.name} ÔåÆ JARVIS: ${truncateText(asString(event.summary) || asString(event.output_tail) || "completado", 90)}`,
         );
+        store.logActivity(target.id, status === "completed" ? "info" : "error", asString(event.summary) || asString(event.output_tail) || status || "completado");
         void fetchChildSessionCost(asString(event.child_session_id) || asString(event.subagent_session_id));
         break;
       }
@@ -1023,6 +1043,7 @@ export default function App() {
         store.setPartial("");
         store.setOrb("idle");
         store.patchAgent("jarvis", { status: "error", endedAt: Date.now(), lastOperation: truncateText(message, 80) });
+        store.logActivity("jarvis", "error", message);
         notify(friendlyError(message));
         break;
       }
@@ -1552,6 +1573,15 @@ export default function App() {
           </button>
           <button
             type="button"
+            className="icon-btn logs-btn"
+            onClick={() => setLogsOpen(true)}
+            aria-label="Logs de agentes"
+            title="Logs de agentes"
+          >
+            <LogsIcon />
+          </button>
+          <button
+            type="button"
             className="icon-btn board-btn"
             onClick={() => setBoardOpen(true)}
             aria-label="Tablero"
@@ -1578,6 +1608,7 @@ export default function App() {
       <AgentsPanel />
 
       {boardOpen ? <Board /> : null}
+      {logsOpen ? <LogsPanel onClose={() => setLogsOpen(false)} /> : null}
       {agentChat ? <AgentChatModal /> : null}
       <AgentEditor />
       {!settings.onboarded ? <Onboarding onComplete={() => void connect()} /> : null}

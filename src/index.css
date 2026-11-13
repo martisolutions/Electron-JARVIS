@@ -1332,6 +1332,96 @@ code,
   color: #d8fbff;
 }
 
+.logs-modal {
+  width: min(900px, 96vw);
+}
+
+.logs-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(90, 200, 255, 0.1);
+  scrollbar-width: thin;
+}
+
+.logs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(90, 200, 255, 0.13);
+  background: rgba(6, 20, 27, 0.55);
+  color: rgba(170, 230, 245, 0.65);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.logs-tab:hover {
+  border-color: rgba(90, 235, 255, 0.35);
+  color: #dffbff;
+}
+
+.logs-tab.is-active {
+  border-color: rgba(90, 235, 255, 0.48);
+  background: rgba(10, 38, 48, 0.8);
+  color: #e6fdff;
+}
+
+.logs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(120, 180, 195, 0.4);
+}
+
+.logs-dot.agent-running {
+  background: #7ff3d8;
+  box-shadow: 0 0 8px rgba(127, 243, 216, 0.8);
+}
+
+.logs-dot.agent-error {
+  background: #ff7b8c;
+}
+
+.logs-dot.agent-done {
+  background: #68d7ff;
+}
+
+.logs-body {
+  min-height: 260px;
+}
+
+.agent-chat-line.role-think {
+  border-color: rgba(150, 135, 255, 0.22);
+  background: rgba(17, 13, 35, 0.56);
+}
+
+.agent-chat-line.role-think p {
+  color: rgba(207, 200, 255, 0.82);
+  font-style: italic;
+}
+
+.agent-chat-line.role-error {
+  border-color: rgba(255, 100, 125, 0.24);
+  background: rgba(35, 8, 15, 0.5);
+}
+
+.agent-chat-line.role-error p {
+  color: rgba(255, 184, 196, 0.9);
+}
+
+.agent-chat-line.role-message p,
+.agent-chat-line.role-info p {
+  color: rgba(210, 244, 250, 0.8);
+}
+
+.logs-btn {
+  color: rgba(170, 240, 255, 0.78);
+}
 .agent-chat-overlay {
   position: fixed;
   inset: 0;

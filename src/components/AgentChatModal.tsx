@@ -1,40 +1,14 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
+import { parseTranscript, TRANSCRIPT_ROLE_LABEL, type TranscriptLine } from "../lib/transcript";
 import { CloseIcon } from "./Icons";
-
-type TranscriptLine = {
-  time?: string;
-  role: string;
-  text: string;
-};
 
 type ChatBridge = {
   readHermesLog?: (path: string) => Promise<string>;
 };
 
-const ROLE_LABEL: Record<string, string> = {
-  user: "Instrucción",
-  assistant: "Agente",
-  tool: "Herramienta",
-  result: "Resultado",
-  think: "Razonamiento",
-  start: "Inicio",
-  end: "Fin",
-  system: "Sistema",
-};
-
 function getBridge(): ChatBridge | undefined {
   return (window as unknown as { jarvisDesktop?: ChatBridge }).jarvisDesktop;
-}
-
-function parseTranscript(text: string): TranscriptLine[] {
-  const parsed: TranscriptLine[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const match = /^(\d{1,2}:\d{2}:\d{2})\s+([a-z]+)\s*\|\s*(.*)$/i.exec(line.trimEnd());
-    if (!match) continue;
-    parsed.push({ time: match[1], role: match[2].toLowerCase(), text: match[3] });
-  }
-  return parsed.slice(-400);
 }
 
 function formatTime(value: number): string {
@@ -110,7 +84,7 @@ export function AgentChatModal() {
             <span className="eyebrow">CHAT DEL AGENTE</span>
             <h2>{agent.name}</h2>
             <p>
-              {agent.role} · {agent.status === "running" ? "En ejecución" : agent.status === "done" ? "Completado" : agent.status === "error" ? "Error" : "En espera"}
+              {agent.role} Â· {agent.status === "running" ? "En ejecuciÃ³n" : agent.status === "done" ? "Completado" : agent.status === "error" ? "Error" : "En espera"}
             </p>
           </div>
           <div className="agent-chat-head-actions">
@@ -128,7 +102,7 @@ export function AgentChatModal() {
         <div className="agent-chat-body">
           {isJarvis ? (
             messages.length === 0 ? (
-              <p className="agent-chat-empty">JARVIS aún no ha hablado en esta sesión.</p>
+              <p className="agent-chat-empty">JARVIS aÃºn no ha hablado en esta sesiÃ³n.</p>
             ) : (
               messages.map((message) => (
                 <div key={message.id} className={`agent-chat-bubble role-${message.role}`}>
@@ -141,7 +115,7 @@ export function AgentChatModal() {
               ))
             )
           ) : loading ? (
-            <p className="agent-chat-empty">Cargando historial…</p>
+            <p className="agent-chat-empty">Cargando historialâ€¦</p>
           ) : error ? (
             <p className="agent-chat-empty">{error}</p>
           ) : hasTranscript ? (
@@ -152,14 +126,14 @@ export function AgentChatModal() {
               >
                 <span>
                   {line.time ? <time>{line.time}</time> : null}
-                  {ROLE_LABEL[line.role] ?? line.role}
+                  {TRANSCRIPT_ROLE_LABEL[line.role] ?? line.role}
                 </span>
                 <p>{line.text}</p>
               </div>
             ))
           ) : (
             <div className="agent-chat-empty">
-              <p>Este agente todavía no tiene un historial de conversación.</p>
+              <p>Este agente todavÃ­a no tiene un historial de conversaciÃ³n.</p>
               {agent.task ? <p className="agent-chat-task">Tarea: {agent.task}</p> : null}
               {agent.summary ? <p className="agent-chat-task">Resumen: {agent.summary}</p> : null}
               {relatedLog.length > 0 ? (
@@ -174,7 +148,7 @@ export function AgentChatModal() {
         </div>
 
         <footer className="agent-chat-foot">
-          <span>{isJarvis ? "Conversación principal" : hasTranscript ? "Último historial del subagente" : "Sin historial todavía"}</span>
+          <span>{isJarvis ? "ConversaciÃ³n principal" : hasTranscript ? "Ãšltimo historial del subagente" : "Sin historial todavÃ­a"}</span>
           <button type="button" onClick={closeAgentChat}>
             Cerrar
           </button>
@@ -183,3 +157,4 @@ export function AgentChatModal() {
     </div>
   );
 }
+

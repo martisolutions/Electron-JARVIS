@@ -46,6 +46,16 @@ export type AgentLogEntry = {
   text: string;
 };
 
+export type ActivityKind = "think" | "message" | "tool" | "result" | "info" | "error";
+
+export type AgentActivity = {
+  id: string;
+  at: number;
+  agentId: string;
+  kind: ActivityKind;
+  text: string;
+};
+
 export type PanelKind = "code" | "diagram" | "text" | "markdown";
 
 export type JarvisPanel = {

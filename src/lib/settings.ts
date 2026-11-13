@@ -1,4 +1,4 @@
-﻿import { DEFAULT_AGENT_CONFIGS, normalizeAgentConfigs } from "./agents";
+import { DEFAULT_AGENT_CONFIGS, normalizeAgentConfigs } from "./agents";
 import type { AgentConfig } from "../types";
 
 export type Settings = {
@@ -39,6 +39,19 @@ export function loadSettings(): Settings {
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const storedSessionId = str(parsed.sessionId, DEFAULT_SETTINGS.sessionId).trim();
+    const agentConfigs = normalizeAgentConfigs(parsed.agentConfigs);
+    const visionDefault = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === "vision");
+    if (visionDefault) {
+      for (const agent of agentConfigs) {
+        if (
+          agent.id === "vision" &&
+          agent.builtin &&
+          /navegador Chrome visible|Solo VISI[^ ]+ abre Google Chrome/i.test(agent.instructions)
+        ) {
+          agent.instructions = visionDefault.instructions;
+        }
+      }
+    }
     return {
       hermesUrl: str(parsed.hermesUrl, DEFAULT_SETTINGS.hermesUrl).trim() || DEFAULT_SETTINGS.hermesUrl,
       hermesKey: str(parsed.hermesKey, DEFAULT_SETTINGS.hermesKey),
@@ -58,7 +71,7 @@ export function loadSettings(): Settings {
         typeof parsed.onboarded === "boolean"
           ? parsed.onboarded
           : Boolean(str(parsed.hermesKey, "").trim()),
-      agentConfigs: normalizeAgentConfigs(parsed.agentConfigs),
+      agentConfigs,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

@@ -23,12 +23,12 @@ export const DEFAULT_AGENT_CONFIGS: AgentConfig[] = [
   {
     id: "vision",
     name: "VISIÓN",
-    role: "Navegador Chrome",
+    role: "Navegador (extensión)",
     trigger: "VISIÓN",
     enabled: true,
     builtin: true,
     instructions:
-      "Cuando Jordi pida abrir o navegar una web, buscar en una página, hacer clic, rellenar un formulario o usar el navegador, delega en VISIÓN con un goal que empiece por 'VISIÓN:' y describa la URL y los datos exactos; no lo intentes tú. VISIÓN usa el navegador Chrome visible para tareas web. Solo VISIÓN abre Google Chrome; JARVIS nunca ejecuta chrome.exe ni crea accesos directos o links. Si VISIÓN reporta un problema de inicio de sesión o cookies, no reintentes ni cambies credenciales: dile a Jordi que lo corrija y espera. El goal debe ser breve y concreto; VISIÓN puede abrir las pestañas que necesite, debe traer al primer plano una ventana nueva y, si cierra Chrome, entregar lo recopilado y decir 'Sesión de Chrome cerrada'.",
+      "Cuando Jordi pida abrir o navegar una web, buscar en una página, hacer clic, rellenar un formulario o usar el navegador, delega en VISIÓN con un goal que empiece por 'VISIÓN:' y describa la URL y los datos exactos; no lo intentes tú. VISIÓN debe usar la Hermes Browser Extension y sus herramientas tab_* (tab_list, tab_create, tab_navigate, tab_snapshot, tab_click, tab_type, tab_fill, tab_scroll, etc.) sobre una pestaña adjunta o autorizada. No debe ejecutar chrome.exe, abrir Chrome por terminal ni usar browser_exec. Si no hay una pestaña adjunta, debe detenerse y pedir a Jordi que adjunte una pestaña desde la extensión; no cambies credenciales. Si VISIÓN reporta un problema de inicio de sesión o cookies, no reintentes: dile a Jordi que lo corrija y espera. El goal debe ser breve y concreto; VISIÓN puede abrir pestañas de fondo si la extensión lo permite, debe traer al primer plano solo cuando la acción lo requiera y, si cierra la pestaña, entregar lo recopilado y decirlo.",
   },
   {
     id: "panels",

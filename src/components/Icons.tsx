@@ -70,6 +70,15 @@ export function SparkIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function LogsIcon({ size = 18 }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 6.5h14M5 12h14M5 17.5h8" />
+      <circle cx="18.5" cy="17.5" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function BoardIcon({ size = 18 }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
