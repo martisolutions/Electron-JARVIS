@@ -44,12 +44,17 @@ export class Orb {
   private readonly haloMaterial: THREE.ShaderMaterial;
   private readonly orbitGroups: THREE.Group[] = [];
   private readonly orbitMaterials: THREE.PointsMaterial[] = [];
+  private readonly beamGroup: THREE.Group;
+  private readonly beamMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly satelliteGroup: THREE.Group;
   private readonly satellites: Array<{
     mesh: THREE.Mesh;
     beam: THREE.Line;
     beamMaterial: THREE.LineBasicMaterial;
     meshMaterial: THREE.MeshBasicMaterial;
+    label: THREE.Sprite;
+    labelMaterial: THREE.SpriteMaterial;
+    labelTexture: THREE.CanvasTexture;
     angle: number;
     speed: number;
   }> = [];
@@ -141,6 +146,7 @@ export class Orb {
     this.points = new THREE.Points(geometry, this.particleMaterial);
     this.points.frustumCulled = false;
     this.scene.add(this.points);
+    this.points.visible = false;
 
     this.nucleusMaterial = new THREE.ShaderMaterial({
       vertexShader: nucleusVertex,
@@ -174,22 +180,48 @@ export class Orb {
     this.halo = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 5.6), this.haloMaterial);
     this.halo.position.set(0, 0, -1.4);
     this.scene.add(this.halo);
+    this.beamGroup = new THREE.Group();
+    const beamMaterialA = new THREE.MeshBasicMaterial({
+      color: 0x6fe6ff,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const beamMaterialB = new THREE.MeshBasicMaterial({
+      color: 0xeaffff,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const beamA = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.055, 1.9, 24, 1, true), beamMaterialA);
+    const beamB = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.018, 1.5, 16, 1, true), beamMaterialB);
+    const beamC = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.045, 1.7, 20, 1, true), beamMaterialA);
+    beamA.rotation.z = 0.16;
+    beamB.rotation.z = 0.16;
+    beamC.rotation.z = 0.16;
+    this.beamGroup.add(beamA, beamB, beamC);
+    this.scene.add(this.beamGroup);
+    this.beamMaterials.push(beamMaterialA, beamMaterialA, beamMaterialB);
 
     this.satelliteGroup = new THREE.Group();
     this.scene.add(this.satelliteGroup);
 
     const orbitSpecs = [
-      { radius: 1.28, count: 120, tiltX: 0.42, tiltZ: 0.08, size: 0.014 },
-      { radius: 1.58, count: 150, tiltX: -0.55, tiltZ: 0.3, size: 0.012 },
-      { radius: 1.9, count: 180, tiltX: 0.82, tiltZ: -0.18, size: 0.01 },
+      { radius: 1.3, count: 72, tiltX: 0.42, tiltZ: 0.08, size: 0.013, exact: false },
+      { radius: 1.58, count: 18, tiltX: -0.3, tiltZ: 0.16, size: 0.026, exact: true },
+      { radius: 1.88, count: 96, tiltX: 0.82, tiltZ: -0.18, size: 0.01, exact: false },
     ];
     for (const spec of orbitSpecs) {
       const positions = new Float32Array(spec.count * 3);
       for (let i = 0; i < spec.count; i += 1) {
-        const angle = (i / spec.count) * Math.PI * 2 + (Math.random() - 0.5) * 0.04;
-        const radius = spec.radius + (Math.random() - 0.5) * 0.06;
+        const angle = (i / spec.count) * Math.PI * 2 + (spec.exact ? 0 : (Math.random() - 0.5) * 0.04);
+        const radius = spec.radius + (spec.exact ? 0 : (Math.random() - 0.5) * 0.06);
         positions[i * 3] = Math.cos(angle) * radius;
-        positions[i * 3 + 1] = (Math.random() - 0.5) * 0.035;
+        positions[i * 3 + 1] = spec.exact ? 0 : (Math.random() - 0.5) * 0.035;
         positions[i * 3 + 2] = Math.sin(angle) * radius;
       }
       const geometry = new THREE.BufferGeometry();
@@ -242,12 +274,14 @@ export class Orb {
     this.activityMode = mode;
   }
 
-  setSatellites(agents: Array<{ id?: string; name?: string }>): void {
+  setSatellites(agents: Array<{ id?: string; name?: string; summary?: string }>): void {
     for (const satellite of this.satellites) {
       satellite.mesh.geometry.dispose();
       satellite.meshMaterial.dispose();
       satellite.beam.geometry.dispose();
       satellite.beamMaterial.dispose();
+      satellite.labelTexture.dispose();
+      satellite.labelMaterial.dispose();
     }
     this.satelliteGroup.clear();
     this.satellites.length = 0;
@@ -276,16 +310,57 @@ export class Orb {
       const beam = new THREE.Line(beamGeometry, beamMaterial);
       beam.frustumCulled = false;
 
-      this.satelliteGroup.add(mesh, beam);
+      const { sprite: label, material: labelMaterial, texture: labelTexture } = this.createSatelliteLabel(
+        _agent.name || "AGENTE",
+        _agent.summary || "",
+      );
+
+      this.satelliteGroup.add(mesh, beam, label);
       this.satellites.push({
         mesh,
         beam,
         beamMaterial,
         meshMaterial,
+        label,
+        labelMaterial,
+        labelTexture,
         angle: (index / Math.max(1, unique.length)) * Math.PI * 2,
         speed: 0.08 + index * 0.025,
       });
     });
+  }
+  private createSatelliteLabel(
+    name: string,
+    summary: string,
+  ): { sprite: THREE.Sprite; material: THREE.SpriteMaterial; texture: THREE.CanvasTexture } {
+    const words = summary.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, 10).join(" ") || "recibiendo datos";
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 128;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.font = "600 22px monospace";
+      context.fillStyle = "rgba(226, 252, 255, 0.96)";
+      context.fillText(name.slice(0, 24).toUpperCase(), 16, 30);
+      context.font = "400 19px monospace";
+      context.fillStyle = "rgba(165, 235, 248, 0.82)";
+      context.fillText(words.slice(0, 54), 16, 63);
+      if (words.length > 54) context.fillText(words.slice(54, 108), 16, 90);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(1.35, 0.34, 1);
+    sprite.renderOrder = 3;
+    return { sprite, material, texture };
   }
   dispose(): void {
     this.running = false;
@@ -311,6 +386,8 @@ export class Orb {
       });
       this.scene.remove(group);
     };
+    disposeGroup(this.beamGroup);
+    this.beamMaterials.length = 0;
     this.orbitGroups.forEach(disposeGroup);
     this.orbitGroups.length = 0;
     this.orbitMaterials.length = 0;
@@ -409,6 +486,14 @@ export class Orb {
     this.nucleus.scale.setScalar(1 + this.level * 0.12 + Math.sin(t * 1.6) * 0.02);
     this.halo.scale.setScalar(1 + this.level * 0.14);
 
+    this.beamGroup.rotation.y += delta * (0.16 + this.level * 0.4) * speed;
+    this.beamGroup.rotation.z = Math.sin(t * 0.7) * 0.12;
+    this.beamGroup.scale.set(1 + this.level * 0.06, 1 + this.level * 0.16, 1 + this.level * 0.06);
+    this.beamMaterials.forEach((material) => {
+      material.color.copy(this.colorA);
+      material.opacity = 0.2 + this.level * 0.3 + this.speak * 0.12;
+    });
+
     this.zoom += (this.targetZoom - this.zoom) * Math.min(1, delta * 4.5);
     this.camera.position.z = this.zoom;
     const orbitSpeed =
@@ -432,6 +517,8 @@ export class Orb {
       const y = Math.sin(satellite.angle * 1.7) * 0.3;
       const z = Math.sin(satellite.angle) * radius;
       satellite.mesh.position.set(x, y, z);
+      satellite.label.position.set(x, y + 0.24, z);
+      satellite.labelMaterial.opacity = 0.72 + Math.sin(t * 2 + satellite.angle) * 0.1;
       satellite.meshMaterial.color.copy(this.colorA).lerp(this.colorC, 0.4);
       satellite.mesh.scale.setScalar(1 + Math.sin(t * 4 + satellite.angle) * 0.16);
       const beamPositions = satellite.beam.geometry.getAttribute("position") as THREE.BufferAttribute;
