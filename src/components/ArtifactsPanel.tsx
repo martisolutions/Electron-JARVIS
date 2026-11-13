@@ -74,7 +74,7 @@ export function ArtifactsPanel() {
       </div>
       <div className="hud-artifact-list">
         {snapshot.artifacts.length === 0 ? (
-          <p className="hud-artifact-empty">Sin eventos ni accesos generados.</p>
+          <p className="hud-artifact-empty">Sin eventos ni accesos generados. Se guardan en Documents/JARVIS.</p>
         ) : (
           snapshot.artifacts.map((item) => (
             <div key={item.id} className={`hud-artifact ${selected?.id === item.id ? "is-selected" : ""}`}>

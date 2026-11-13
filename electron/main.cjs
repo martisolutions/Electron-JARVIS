@@ -623,24 +623,28 @@ function artifactSnapshot() {
   };
   for (const filePath of registeredArtifacts.keys()) addPath(filePath);
 
-  const folders = [
-    path.join(os.homedir(), "Desktop"),
-    path.join(os.homedir(), "Downloads"),
-    path.join(os.homedir(), "Documents"),
-    path.join(app.getPath("userData"), "artifacts"),
-  ];
-  for (const folder of folders) {
+  const jarvisFolder = path.join(os.homedir(), "Documents", "JARVIS");
+  try {
+    fs.mkdirSync(jarvisFolder, { recursive: true });
+  } catch {
+    /* best effort */
+  }
+  const scanFolder = (folder, recursive) => {
     try {
       for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
-        if (entry.isFile() && ARTIFACT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-          addPath(path.join(folder, entry.name));
+        const filePath = path.join(folder, entry.name);
+        if (entry.isDirectory() && recursive) {
+          scanFolder(filePath, true);
+        } else if (entry.isFile() && ARTIFACT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+          addPath(filePath);
         }
       }
     } catch {
       /* folder may not exist */
     }
-  }
-
+  };
+  scanFolder(jarvisFolder, true);
+  scanFolder(path.join(app.getPath("userData"), "artifacts"), false);
   const artifacts = [];
   for (const filePath of paths.keys()) {
     try {
