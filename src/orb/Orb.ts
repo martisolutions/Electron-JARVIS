@@ -10,6 +10,7 @@ import { haloFragment, haloVertex, nucleusFragment, nucleusVertex, particleFragm
 type OrbOptions = {
   levels: () => Levels;
   reducedMotion?: boolean;
+  onZoom?: (zoom: number) => void;
 };
 
 type StatePalette = { a: number; b: number; c: number };
@@ -27,6 +28,7 @@ export class Orb {
   private readonly container: HTMLElement;
   private readonly levels: () => Levels;
   private readonly reducedMotion: boolean;
+  private readonly onZoom?: (zoom: number) => void;
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -40,6 +42,9 @@ export class Orb {
   private readonly nucleusMaterial: THREE.ShaderMaterial;
   private readonly halo: THREE.Mesh;
   private readonly haloMaterial: THREE.ShaderMaterial;
+  private readonly networkGroup: THREE.Group;
+  private readonly networkMaterial: THREE.LineBasicMaterial;
+  private readonly networkPointMaterial: THREE.PointsMaterial;
 
   private readonly colorA = new THREE.Color(PALETTES.idle.a);
   private readonly colorB = new THREE.Color(PALETTES.idle.b);
@@ -60,6 +65,8 @@ export class Orb {
   private frame = 0;
   private clock = 0;
   private lastTime = 0;
+  private zoom = 4.5;
+  private targetZoom = 4.5;
   private running = true;
   private resizeObserver: ResizeObserver | null = null;
 
@@ -67,6 +74,7 @@ export class Orb {
     this.container = container;
     this.levels = options.levels;
     this.reducedMotion = options.reducedMotion ?? false;
+    this.onZoom = options.onZoom;
 
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
@@ -88,7 +96,7 @@ export class Orb {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
-    this.camera.position.set(0, 0, 3.45);
+    this.camera.position.set(0, 0, 4.5);
     this.camera.lookAt(0, 0, 0);
 
     const isSmall = width < 640;
@@ -158,6 +166,37 @@ export class Orb {
     this.halo.position.set(0, 0, -1.4);
     this.scene.add(this.halo);
 
+    const network = buildNetwork();
+    const networkGeometry = new THREE.BufferGeometry();
+    networkGeometry.setAttribute("position", new THREE.BufferAttribute(network.positions, 3));
+    this.networkMaterial = new THREE.LineBasicMaterial({
+      color: 0x55dfff,
+      transparent: true,
+      opacity: 0.12,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const networkLines = new THREE.LineSegments(networkGeometry, this.networkMaterial);
+    networkLines.frustumCulled = false;
+
+    const nodeGeometry = new THREE.BufferGeometry();
+    nodeGeometry.setAttribute("position", new THREE.BufferAttribute(network.nodePositions, 3));
+    this.networkPointMaterial = new THREE.PointsMaterial({
+      color: 0x9ff7ff,
+      size: 0.018,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    const networkNodes = new THREE.Points(nodeGeometry, this.networkPointMaterial);
+    networkNodes.frustumCulled = false;
+
+    this.networkGroup = new THREE.Group();
+    this.networkGroup.add(networkLines, networkNodes);
+    this.scene.add(this.networkGroup);
+
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.5, 0.45, 0.3);
@@ -168,6 +207,7 @@ export class Orb {
     this.resizeObserver.observe(container);
 
     window.addEventListener("pointermove", this.handlePointer, { passive: true });
+    this.container.addEventListener("wheel", this.handleWheel, { passive: false });
     this.lastTime = performance.now();
     this.loop = this.loop.bind(this);
     this.frame = requestAnimationFrame(this.loop);
@@ -186,6 +226,7 @@ export class Orb {
     this.running = false;
     cancelAnimationFrame(this.frame);
     window.removeEventListener("pointermove", this.handlePointer);
+    this.container.removeEventListener("wheel", this.handleWheel);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
 
@@ -195,6 +236,13 @@ export class Orb {
     this.nucleusMaterial.dispose();
     this.halo.geometry.dispose();
     this.haloMaterial.dispose();
+    this.networkGroup.traverse((object) => {
+      if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
+        object.geometry.dispose();
+        if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+        else object.material.dispose();
+      }
+    });
     this.composer.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -203,6 +251,16 @@ export class Orb {
   private readonly handlePointer = (event: PointerEvent): void => {
     this.pointerX = (event.clientX / window.innerWidth) * 2 - 1;
     this.pointerY = (event.clientY / window.innerHeight) * 2 - 1;
+  };
+
+  zoomBy(delta: number): void {
+    this.targetZoom = Math.min(6.2, Math.max(2.2, this.targetZoom + delta));
+    this.onZoom?.(this.targetZoom);
+  }
+
+  private readonly handleWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+    this.zoomBy(event.deltaY * 0.0018);
   };
 
   private resize(): void {
@@ -278,6 +336,14 @@ export class Orb {
     this.nucleus.scale.setScalar(1 + this.level * 0.12 + Math.sin(t * 1.6) * 0.02);
     this.halo.scale.setScalar(1 + this.level * 0.14);
 
+    this.zoom += (this.targetZoom - this.zoom) * Math.min(1, delta * 4.5);
+    this.camera.position.z = this.zoom;
+    this.networkGroup.rotation.y = t * 0.035 * speed;
+    this.networkGroup.rotation.x = Math.sin(t * 0.08) * 0.16;
+    this.networkGroup.rotation.z = Math.cos(t * 0.06) * 0.08;
+    this.networkMaterial.color.copy(this.colorA).lerp(this.colorC, 0.24);
+    this.networkMaterial.opacity = 0.12 + this.level * 0.12;
+
     this.points.rotation.y += delta * (0.06 + this.level * 0.12) * speed;
     this.points.rotation.x = Math.sin(t * 0.12) * 0.12;
     this.points.rotation.z = Math.cos(t * 0.09) * 0.05;
@@ -314,4 +380,36 @@ function buildSphere(count: number, small: boolean): { positions: Float32Array; 
   }
 
   return { positions, seeds };
+}
+
+function buildNetwork(): { positions: Float32Array; nodePositions: Float32Array } {
+  const count = 64;
+  const nodes: Array<[number, number, number]> = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < count; i += 1) {
+    const y = 1 - (i / Math.max(1, count - 1)) * 2;
+    const radius = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = golden * i;
+    const r = 1.22 + Math.random() * 0.24;
+    nodes.push([Math.cos(theta) * radius * r, y * r, Math.sin(theta) * radius * r]);
+  }
+
+  const segments: number[] = [];
+  const push = (from: [number, number, number], to: [number, number, number]): void => {
+    segments.push(from[0], from[1], from[2], to[0], to[1], to[2]);
+  };
+
+  for (let i = 0; i < count; i += 1) {
+    for (let j = i + 1; j < count; j += 1) {
+      const dx = nodes[i][0] - nodes[j][0];
+      const dy = nodes[i][1] - nodes[j][1];
+      const dz = nodes[i][2] - nodes[j][2];
+      if (dx * dx + dy * dy + dz * dz < 0.82) push(nodes[i], nodes[j]);
+    }
+  }
+
+  return {
+    positions: new Float32Array(segments),
+    nodePositions: new Float32Array(nodes.flatMap((node) => node)),
+  };
 }

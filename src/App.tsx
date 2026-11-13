@@ -4,6 +4,7 @@ import { AgentEditor } from "./components/AgentEditor";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { Board } from "./components/Board";
 import { LogsPanel } from "./components/LogsPanel";
+import { NodeWords } from "./components/NodeWords";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AttachmentIcon, BoardIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
@@ -14,11 +15,17 @@ import { VoiceRecorder } from "./lib/recorder";
 import { errorMessage, friendlyError, sanitizeForSpeech } from "./lib/text";
 import { Orb } from "./orb/Orb";
 import { useStore } from "./store";
-import type { AgentCard, ConnectionState } from "./types";
+import type { AgentCard, ConnectionState, NodeWord } from "./types";
 
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
 type ButtonMode = "hold" | "latched";
+
+type NodeBridge = {
+  listNodeWords?: () => Promise<{ words?: NodeWord[] }>;
+  addNodeWord?: (input: { word?: string; context?: string }) => Promise<NodeWord>;
+  onNodeWords?: (callback: (state: { words?: NodeWord[] }) => void) => () => void;
+};
 
 type FilesBridge = {
   jarvisDesktop?: {
@@ -232,6 +239,8 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [logsOpen, setLogsOpen] = useState(false);
+  const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
+  const [nodeZoom, setNodeZoom] = useState(1);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const attachmentsRef = useRef<string[]>([]);
@@ -333,6 +342,7 @@ export default function App() {
         return audioRef.current?.getLevels() ?? ZERO_LEVELS;
       },
       reducedMotion: reduced,
+      onZoom: (value) => setNodeZoom(value / 4.5),
     });
     orbRef.current = orbInstance;
 
@@ -354,6 +364,22 @@ export default function App() {
     const seed = useStore.getState().settings;
     if (seed.onboarded && seed.hermesUrl.trim() && seed.hermesKey.trim()) void connect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const bridge = (window as unknown as { jarvisDesktop?: NodeBridge }).jarvisDesktop;
+    if (!bridge?.listNodeWords && !bridge?.onNodeWords) return;
+    let cancelled = false;
+    void bridge.listNodeWords?.().then((state) => {
+      if (!cancelled) setNodeWords(Array.isArray(state?.words) ? state.words : []);
+    });
+    const unsubscribe = bridge.onNodeWords?.((state) => {
+      if (!cancelled) setNodeWords(Array.isArray(state?.words) ? state.words : []);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -794,6 +820,38 @@ export default function App() {
     }, 800);
   }
 
+  function extractNodeWord(text: string): string {
+    const stopwords = new Set([
+      "para", "como", "cuando", "donde", "desde", "hasta", "sobre", "entre", "porque", "quiero",
+      "puedes", "podrias", "hacer", "hazme", "dime", "dame", "ayuda", "necesito", "tengo", "hola",
+      "gracias", "esto", "esta", "este", "esos", "esas", "algo", "algun", "alguna", "todo", "toda",
+      "the", "and", "for", "with", "that", "this", "from", "what", "when", "where", "how", "can",
+      "you", "please", "help", "need", "have", "about", "into", "your", "my", "me", "we", "it",
+    ]);
+    const tokens = text.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
+    const candidates = tokens.filter((token) => token.length >= 3 && !stopwords.has(token));
+    return (candidates.sort((left, right) => right.length - left.length)[0] ?? "consulta").slice(0, 48);
+  }
+
+  async function rememberNodeWord(text: string): Promise<void> {
+    const question = text.replace(/\s+/g, " ").trim();
+    if (!question) return;
+    const payload = { word: extractNodeWord(question), context: question.slice(0, 280) };
+    const bridge = (window as unknown as { jarvisDesktop?: NodeBridge }).jarvisDesktop;
+    try {
+      if (bridge?.addNodeWord) await bridge.addNodeWord(payload);
+      else {
+        await fetch("http://127.0.0.1:5191/node", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+    } catch {
+      /* the visual node is best-effort */
+    }
+  }
+
   async function sendMessage(raw: string): Promise<void> {
     let text = raw.trim();
     const files = attachmentsRef.current;
@@ -806,6 +864,7 @@ export default function App() {
       return;
     }
 
+    void rememberNodeWord(text || (files.length > 0 ? "archivos adjuntos" : ""));
     if (files.length > 0) {
       text = `${text || "Analiza los archivos adjuntos."}\n\nArchivos adjuntos:\n${files
         .map((file) => `- ${file}`)
@@ -1551,6 +1610,7 @@ export default function App() {
     <div className="app" data-state={orb}>
       <div className="stage-bg" ref={stageRef} aria-hidden="true" />
       <div className="veil" aria-hidden="true" />
+      <NodeWords words={nodeWords} zoom={nodeZoom} />
 
       <header className="topbar">
         <div className="brand">

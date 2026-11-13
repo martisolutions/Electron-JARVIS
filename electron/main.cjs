@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, session, shell, Notification, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Notification, dialog } = require("electron");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -294,6 +294,91 @@ function scheduleReminder(input) {
   return { id, dueAt, seconds };
 }
 
+const NODE_WORD_LIMIT = 100;
+let nodeWords = [];
+let nodeStoreFile = "";
+
+const NODE_STOPWORDS = new Set([
+  "para", "como", "cuando", "donde", "desde", "hasta", "sobre", "entre", "porque", "quiero",
+  "puedes", "podrias", "hacer", "hazme", "dime", "dame", "ayuda", "necesito", "tengo", "hola",
+  "gracias", "esto", "esta", "este", "esos", "esas", "algo", "algun", "alguna", "todo", "toda",
+  "the", "and", "for", "with", "that", "this", "from", "what", "when", "where", "how", "can",
+  "you", "please", "help", "need", "have", "about", "into", "your", "my", "me", "we", "it",
+]);
+
+function sanitizeNodeWord(value) {
+  return String(value ?? "").trim().split(/\s+/)[0].replace(/^[^\p{L}\p{N}_-]+|[^\p{L}\p{N}_-]+$/gu, "").slice(0, 48);
+}
+
+function deriveNodeWord(text) {
+  const words = String(text ?? "").toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  const candidates = words.filter((word) => word.length >= 3 && !NODE_STOPWORDS.has(word));
+  if (candidates.length === 0) return "consulta";
+  return candidates.sort((left, right) => right.length - left.length)[0].slice(0, 48);
+}
+
+function normalizeStoredNodeWord(value) {
+  if (!value || typeof value !== "object") return null;
+  const word = sanitizeNodeWord(value.word);
+  if (!word) return null;
+  return {
+    id: String(value.id || `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`).slice(0, 80),
+    word,
+    context: String(value.context ?? "").replace(/\s+/g, " ").trim().slice(0, 280),
+    at: Number(value.at) || Date.now(),
+  };
+}
+
+function initNodeStore() {
+  nodeStoreFile = path.join(app.getPath("userData"), "node.json");
+  try {
+    const raw = JSON.parse(fs.readFileSync(nodeStoreFile, "utf8"));
+    const words = Array.isArray(raw) ? raw : Array.isArray(raw?.words) ? raw.words : [];
+    nodeWords = words.map(normalizeStoredNodeWord).filter(Boolean).slice(0, NODE_WORD_LIMIT);
+  } catch {
+    nodeWords = [];
+  }
+}
+
+function saveNodeStore() {
+  try {
+    fs.mkdirSync(path.dirname(nodeStoreFile), { recursive: true });
+    fs.writeFileSync(nodeStoreFile, JSON.stringify({ words: nodeWords }, null, 2), "utf8");
+  } catch (error) {
+    console.log("[node-save]", error);
+  }
+}
+
+function nodeSnapshot() {
+  return { words: nodeWords };
+}
+
+function broadcastNodeWords() {
+  const state = nodeSnapshot();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("node:changed", state);
+  }
+}
+
+function addNodeWord(input) {
+  const context = String(input?.context ?? input?.text ?? input?.question ?? "").replace(/\s+/g, " ").trim().slice(0, 280);
+  const word = sanitizeNodeWord(input?.word) || deriveNodeWord(context);
+  if (!word) throw new Error("Falta la palabra del nodo.");
+  const normalized = word.toLocaleLowerCase("es");
+  const entry = {
+    id: `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    word,
+    context,
+    at: Date.now(),
+  };
+  nodeWords = [entry, ...nodeWords.filter((item) => item.word.toLocaleLowerCase("es") !== normalized)].slice(
+    0,
+    NODE_WORD_LIMIT,
+  );
+  saveNodeStore();
+  broadcastNodeWords();
+  return entry;
+}
 let panels = [];
 let openPanelIds = new Set();
 let panelStoreFile = "";
@@ -433,6 +518,8 @@ function setPanelOpenState(id, open) {
   return true;
 }
 
+ipcMain.handle("node:list", () => nodeSnapshot());
+ipcMain.handle("node:add", (_event, input) => addNodeWord(input));
 ipcMain.handle("panels:list", () => panelSnapshot());
 ipcMain.handle("panels:create", (_event, input) => createPanel(input, "user"));
 ipcMain.handle("panels:update", (_event, id, input) => updatePanelById(String(id || ""), input));
@@ -536,6 +623,24 @@ function startPanelApi() {
       return;
     }
 
+    if (pathname === "/node" && request.method === "GET") {
+      sendPanelJson(response, 200, { object: "list", ...nodeSnapshot() });
+      return;
+    }
+
+    if (pathname === "/node" && request.method === "POST") {
+      try {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          sendPanelJson(response, 400, { error: "Se esperaba un objeto JSON." });
+          return;
+        }
+        sendPanelJson(response, 201, addNodeWord(body));
+      } catch (error) {
+        sendPanelJson(response, 400, { error: error.message || "Palabra no válida." });
+      }
+      return;
+    }
     if (pathname === "/panels" && request.method === "GET") {
       sendPanelJson(response, 200, { object: "list", ...panelSnapshot() });
       return;
@@ -850,6 +955,7 @@ if (!gotTheLock) {
   app.whenReady().then(async () => {
     const ses = session.defaultSession;
 
+    initNodeStore();
     initPanelStore();
     startPanelApi();
     app.on("before-quit", () => {

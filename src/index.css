@@ -77,6 +77,52 @@ code,
   outline: none;
 }
 
+.node-words {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: min(900px, 92vw);
+  height: min(720px, 82vh);
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform 0.18s ease-out;
+}
+
+.node-word {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 5px;
+  border-radius: 5px;
+  color: rgba(139, 229, 255, 0.68);
+  background: rgba(3, 18, 27, 0.24);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(70, 220, 255, 0.28);
+  animation: nodeFloat 6.5s ease-in-out infinite;
+}
+
+.node-word.is-latest {
+  color: #eaffff;
+  border: 1px solid rgba(110, 240, 255, 0.26);
+  background: rgba(8, 34, 44, 0.62);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 18px rgba(90, 240, 255, 0.65);
+  box-shadow: 0 0 18px rgba(40, 210, 255, 0.12);
+}
+
+@keyframes nodeFloat {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -4px;
+  }
+}
 .veil {
   position: absolute;
   inset: 0;

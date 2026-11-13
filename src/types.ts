@@ -56,6 +56,16 @@ export type AgentActivity = {
   text: string;
 };
 
+export type NodeWord = {
+  id: string;
+  word: string;
+  context: string;
+  at: number;
+};
+
+export type NodeWordsState = {
+  words: NodeWord[];
+};
 export type PanelKind = "code" | "diagram" | "text" | "markdown";
 
 export type JarvisPanel = {

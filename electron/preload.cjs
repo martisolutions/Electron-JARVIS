@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   stopAllAgents: () => ipcRenderer.invoke("hermes:stop-all"),
   detectHermes: () => ipcRenderer.invoke("hermes:detect-local"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
+  listNodeWords: () => ipcRenderer.invoke("node:list"),
+  addNodeWord: (input) => ipcRenderer.invoke("node:add", input),
+  onNodeWords: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("node:changed", listener);
+    return () => ipcRenderer.removeListener("node:changed", listener);
+  },
   listPanels: () => ipcRenderer.invoke("panels:list"),
   createPanel: (input) => ipcRenderer.invoke("panels:create", input),
   updatePanel: (id, input) => ipcRenderer.invoke("panels:update", id, input),
