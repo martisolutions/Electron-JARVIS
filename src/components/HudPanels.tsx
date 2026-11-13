@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SystemMetrics } from "../types";
+import type { BillingSnapshot, SystemMetrics } from "../types";
 
 type Props = {
   metrics: SystemMetrics | null;
@@ -82,7 +82,9 @@ export function HudLeftPanels({ metrics }: Props) {
   );
 }
 
-export function HudRightPanels({ metrics }: Props) {
+type RightProps = Props & { billing: BillingSnapshot | null };
+
+export function HudRightPanels({ metrics, billing }: RightProps) {
   const [readHistory, setReadHistory] = useState<number[]>(() => Array(30).fill(0));
   const [writeHistory, setWriteHistory] = useState<number[]>(() => Array(30).fill(0));
 
@@ -93,6 +95,9 @@ export function HudRightPanels({ metrics }: Props) {
   }, [metrics?.diskRead, metrics?.diskWrite]);
 
   const vramPercent = metrics ? percent(metrics.vramUsed, metrics.vramTotal) : 0;
+  const elevenRemaining = billing?.elevenLabs ? Math.round(billing.elevenLabs.remaining).toLocaleString("es-ES") : "—";
+  const elevenUsed = billing?.elevenLabs ? Math.round(billing.elevenLabs.used).toLocaleString("es-ES") : "—";
+  const elevenLimit = billing?.elevenLabs ? Math.round(billing.elevenLabs.limit).toLocaleString("es-ES") : "—";
   const max = Math.max(4, ...readHistory, ...writeHistory);
   const toPoints = (values: number[]): string =>
     values.map((value, index) => `${(index * 260) / 29},${68 - (value / max) * 56}`).join(" ");
@@ -139,6 +144,33 @@ export function HudRightPanels({ metrics }: Props) {
           <strong>{metrics ? `${metrics.diskWrite.toFixed(0)} MB/s` : "—"}</strong>
         </div>
       </section>
-    </div>
+      <section className="hud-panel hud-billing">
+        <div className="hud-panel-head">
+          <span>CREDITS / BALANCE</span>
+          <strong>LIVE</strong>
+        </div>
+        <div className="hud-billing-block">
+          <div className="hud-kv">
+            <span>ELEVENLABS</span>
+            <strong>{elevenRemaining} chars</strong>
+          </div>
+          <div className="hud-bill-track">
+            <i style={{ width: `${billing?.elevenLabs?.percent ?? 0}%` }} />
+          </div>
+          <small>
+            {billing?.elevenLabs ? `${elevenUsed} / ${elevenLimit} usados` : "Sin datos"}
+          </small>
+        </div>
+        <div className="hud-billing-block">
+          <div className="hud-kv">
+            <span>DEEPSEEK SALDO</span>
+            <strong>{billing?.deepseek ? `${billing.deepseek.currency} ${billing.deepseek.total.toFixed(2)}` : "—"}</strong>
+          </div>
+          <div className="hud-kv">
+            <span>GASTADO</span>
+            <strong>{billing?.deepseek ? `${billing.deepseek.currency} ${billing.deepseek.spent.toFixed(2)}` : "—"}</strong>
+          </div>
+        </div>
+      </section>    </div>
   );
 }

@@ -3351,3 +3351,35 @@ code,
   width: 100%;
   accent-color: #ff9a1f;
 }
+.hud-billing {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hud-billing-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 154, 31, 0.14);
+}
+
+.hud-billing-block small {
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: rgba(217, 154, 74, 0.62);
+}
+
+.hud-bill-track {
+  height: 5px;
+  overflow: hidden;
+  background: rgba(255, 154, 31, 0.14);
+}
+
+.hud-bill-track i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9a1f, #ffd18a);
+  transition: width 0.6s ease;
+}

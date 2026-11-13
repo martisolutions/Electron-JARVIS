@@ -121,6 +121,115 @@ async function getSystemMetrics() {
 }
 
 ipcMain.handle("system:metrics", () => getSystemMetrics());
+let billingCache = { at: 0, value: null };
+let billingSpendFile = "";
+let billingSpendState = { spent: 0, lastBalance: null };
+
+function loadBillingSpend() {
+  if (!billingSpendFile) billingSpendFile = path.join(app.getPath("userData"), "billing-spend.json");
+  try {
+    const data = JSON.parse(fs.readFileSync(billingSpendFile, "utf8"));
+    billingSpendState = {
+      spent: Number(data.spent) || 0,
+      lastBalance: typeof data.lastBalance === "number" ? data.lastBalance : null,
+    };
+  } catch {
+    billingSpendState = { spent: 0, lastBalance: null };
+  }
+}
+
+function saveBillingSpend() {
+  try {
+    fs.mkdirSync(path.dirname(billingSpendFile), { recursive: true });
+    fs.writeFileSync(billingSpendFile, JSON.stringify(billingSpendState, null, 2), "utf8");
+  } catch {
+    /* best effort */
+  }
+}
+
+function readHermesEnvKey(name) {
+  try {
+    const envPath = path.join(process.env.LOCALAPPDATA || "", "hermes", ".env");
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+    const line = lines.find((entry) => new RegExp(`^\\s*${name}\\s*=`).test(entry));
+    if (!line) return "";
+    return line.slice(line.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+async function getBilling() {
+  if (billingCache.value && Date.now() - billingCache.at < 60_000) return billingCache.value;
+
+  loadBillingSpend();
+  const elevenKey = readHermesEnvKey("ELEVENLABS_API_KEY");
+  const deepseekKey = readHermesEnvKey("DEEPSEEK_API_KEY");
+  let elevenLabs = null;
+  let deepseek = null;
+
+  if (elevenKey) {
+    try {
+      const response = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+        headers: { "xi-api-key": elevenKey },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const used = Number(data.character_count) || 0;
+        const limit = Number(data.character_limit) || 0;
+        elevenLabs = {
+          used,
+          limit,
+          remaining: Math.max(0, limit - used),
+          percent: limit ? Math.min(100, (used / limit) * 100) : 0,
+          resetUnix: Number(data.next_character_count_reset_unix) || 0,
+          tier: String(data.tier || ""),
+        };
+      }
+    } catch {
+      /* leave unavailable */
+    }
+  }
+
+  if (deepseekKey) {
+    try {
+      const response = await fetch("https://api.deepseek.com/user/balance", {
+        headers: { Authorization: `Bearer ${deepseekKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const info = Array.isArray(data.balance_infos) ? data.balance_infos[0] : null;
+        if (info) {
+          const balance = Number(info.total_balance) || 0;
+          if (billingSpendState.lastBalance !== null && balance < billingSpendState.lastBalance) {
+            billingSpendState.spent += billingSpendState.lastBalance - balance;
+          }
+          billingSpendState.lastBalance = balance;
+          saveBillingSpend();
+          deepseek = {
+            currency: String(info.currency || ""),
+            total: balance,
+            granted: Number(info.granted_balance) || 0,
+            toppedUp: Number(info.topped_up_balance) || 0,
+            spent: Number(billingSpendState.spent.toFixed(2)),
+            available: data.is_available === true,
+          };
+        }
+      }
+    } catch {
+      /* leave unavailable */
+    }
+  }
+
+  const value = { at: Date.now(), elevenLabs, deepseek };
+  billingCache = { at: Date.now(), value };
+  return value;
+}
+
+ipcMain.handle("billing:get", () => getBilling());
+
 function powershellPath() {
   return path.join(
     process.env.SystemRoot || "C:\\Windows",

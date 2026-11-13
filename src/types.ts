@@ -2,6 +2,25 @@ export type ConnectionState = "idle" | "connecting" | "connected" | "error";
 
 export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "error" | "connecting";
 
+export type BillingSnapshot = {
+  at: number;
+  elevenLabs: {
+    used: number;
+    limit: number;
+    remaining: number;
+    percent: number;
+    resetUnix: number;
+    tier: string;
+  } | null;
+  deepseek: {
+    currency: string;
+    total: number;
+    granted: number;
+    toppedUp: number;
+    spent: number;
+    available: boolean;
+  } | null;
+};
 export type OrbVisualState = "idle" | "thinking" | "talking" | "delegated";
 
 export type OrbVisualConfig = {

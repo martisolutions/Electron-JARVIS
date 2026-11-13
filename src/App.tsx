@@ -17,7 +17,7 @@ import { errorMessage, friendlyError, sanitizeForSpeech } from "./lib/text";
 import { HudOrb } from "./components/HudOrb";
 import { HudLeftPanels, HudRightPanels, HudUptime } from "./components/HudPanels";
 import { useStore } from "./store";
-import type { AgentCard, ConnectionState, NodeWord, OrbVisualState, SystemMetrics } from "./types";
+import type { AgentCard, BillingSnapshot, ConnectionState, NodeWord, OrbVisualState, SystemMetrics } from "./types";
 
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
@@ -241,6 +241,7 @@ export default function App() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
+  const [billing, setBilling] = useState<BillingSnapshot | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
   const [nodeCapacity, setNodeCapacity] = useState(18);
   const [delegationPulse, setDelegationPulse] = useState(0);
@@ -393,6 +394,25 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const bridge = (window as unknown as { jarvisDesktop?: { getBilling?: () => Promise<BillingSnapshot> } }).jarvisDesktop;
+    if (!bridge?.getBilling) return;
+    let cancelled = false;
+    const poll = async (): Promise<void> => {
+      try {
+        const next = await bridge.getBilling?.();
+        if (!cancelled && next) setBilling(next);
+      } catch {
+        /* billing is best-effort */
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     const bridge = (window as unknown as { jarvisDesktop?: { getSystemMetrics?: () => Promise<SystemMetrics> } }).jarvisDesktop;
     if (!bridge?.getSystemMetrics) return;
@@ -1691,7 +1711,7 @@ export default function App() {
           ) : null}
           {notice ? <div className="hud-notice">{notice}</div> : null}
         </section>
-        <HudRightPanels metrics={metrics} />
+        <HudRightPanels metrics={metrics} billing={billing} />
       </main>
 
       {agentsOpen ? <AgentsPanel /> : null}

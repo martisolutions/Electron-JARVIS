@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   stopAllAgents: () => ipcRenderer.invoke("hermes:stop-all"),
   detectHermes: () => ipcRenderer.invoke("hermes:detect-local"),
   getSystemMetrics: () => ipcRenderer.invoke("system:metrics"),
+  getBilling: () => ipcRenderer.invoke("billing:get"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   listNodeWords: () => ipcRenderer.invoke("node:list"),
   addNodeWord: (input) => ipcRenderer.invoke("node:add", input),
