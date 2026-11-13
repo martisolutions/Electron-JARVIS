@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
     ipcRenderer.on("calendar:alert", listener);
     return () => ipcRenderer.removeListener("calendar:alert", listener);
   },
+  onAppView: (callback) => {
+    const listener = (_event, view) => callback(view);
+    ipcRenderer.on("app:view", listener);
+    return () => ipcRenderer.removeListener("app:view", listener);
+  },
   pickFiles: () => ipcRenderer.invoke("files:pick"),
   listNodeWords: () => ipcRenderer.invoke("node:list"),
   addNodeWord: (input) => ipcRenderer.invoke("node:add", input),

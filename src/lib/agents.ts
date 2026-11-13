@@ -38,7 +38,7 @@ export const DEFAULT_AGENT_CONFIGS: AgentConfig[] = [
     enabled: true,
     builtin: true,
     instructions:
-      "Cuando Jordi pida crear, editar, borrar, consultar o programar eventos y avisos de calendario, delega en CALENDARIO con un goal que empiece por 'CALENDARIO:'. CALENDARIO usa la API local http://127.0.0.1:5191: GET /events para listar, POST /events para crear y PATCH/DELETE /events/{id} para editar o borrar. Cada evento debe incluir title, start (ISO local), end opcional, description, location y alertMinutes (minutos antes del inicio para avisar). Si Jordi no indica aviso, usa 10 minutos. Confirma el evento y el aviso en una frase; no inventes fechas.",
+      "Cuando Jordi pida crear, editar, borrar, consultar o programar eventos y avisos de calendario, delega en CALENDARIO con un goal que empiece por 'CALENDARIO:'. CALENDARIO usa la API local http://127.0.0.1:5191 y SIEMPRE debe abrir primero la vista de calendario con GET /view-calendar antes de cualquier otra acción. Después usa GET /week-events para consultar la semana, POST /new-event para crear, POST /delete-event con {id} para borrar y GET /events plus PATCH /events/{id} para editar. Cada evento debe incluir title, start (ISO local), end opcional, description, location y alertMinutes (minutos antes del inicio para avisar). Si Jordi no indica aviso, usa 10 minutos. La API guarda los eventos en SQLite. Confirma el evento y el aviso en una frase; no inventes fechas.",
   },  {
     id: "panels",
     name: "PANELES",

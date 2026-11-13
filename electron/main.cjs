@@ -581,20 +581,78 @@ function addNodeWord(input) {
 const CALENDAR_LIMIT = 500;
 let calendarEvents = [];
 let calendarFile = "";
+let calendarDatabase = null;
 const calendarTimers = new Map();
+
+function loadCalendarRows() {
+  calendarEvents = calendarDatabase
+    .prepare("SELECT id, title, description, location, start, end, alertMinutes, notifiedAt, createdAt, updatedAt FROM calendar_events ORDER BY start ASC")
+    .all()
+    .map(normalizeStoredEvent)
+    .filter(Boolean);
+}
 
 function initCalendarStore() {
   if (!calendarFile) calendarFile = path.join(app.getPath("userData"), "calendar.json");
+  const databasePath = path.join(app.getPath("userData"), "calendar.db");
+  const databaseWasNew = !fs.existsSync(databasePath);
   try {
-    const raw = JSON.parse(fs.readFileSync(calendarFile, "utf8"));
-    calendarEvents = Array.isArray(raw?.events) ? raw.events.map(normalizeStoredEvent).filter(Boolean) : [];
-  } catch {
-    calendarEvents = [];
+    const { DatabaseSync } = require("node:sqlite");
+    calendarDatabase = new DatabaseSync(databasePath);
+    calendarDatabase.exec(
+      "CREATE TABLE IF NOT EXISTS calendar_events (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT DEFAULT '', location TEXT DEFAULT '', start TEXT NOT NULL, end TEXT NOT NULL, alertMinutes INTEGER DEFAULT 10, notifiedAt INTEGER, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)",
+    );
+    loadCalendarRows();
+  } catch (error) {
+    calendarDatabase = null;
+    console.log("[calendar-sqlite]", error.message);
+  }
+
+  if (calendarEvents.length === 0 && (!calendarDatabase || databaseWasNew)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(calendarFile, "utf8"));
+      calendarEvents = Array.isArray(raw?.events) ? raw.events.map(normalizeStoredEvent).filter(Boolean) : [];
+      if (calendarEvents.length > 0) saveCalendarStore();
+    } catch {
+      calendarEvents = [];
+    }
   }
   scheduleAllCalendarEvents();
 }
 
 function saveCalendarStore() {
+  if (calendarDatabase) {
+    try {
+      calendarDatabase.exec("BEGIN");
+      calendarDatabase.prepare("DELETE FROM calendar_events").run();
+      const insert = calendarDatabase.prepare(
+        "INSERT INTO calendar_events (id, title, description, location, start, end, alertMinutes, notifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      );
+      for (const event of calendarEvents) {
+        insert.run(
+          event.id,
+          event.title,
+          event.description,
+          event.location,
+          event.start,
+          event.end,
+          event.alertMinutes,
+          event.notifiedAt,
+          event.createdAt,
+          event.updatedAt,
+        );
+      }
+      calendarDatabase.exec("COMMIT");
+      return;
+    } catch (error) {
+      try {
+        calendarDatabase.exec("ROLLBACK");
+      } catch {
+        /* transaction may not be open */
+      }
+      console.log("[calendar-sqlite-save]", error.message);
+    }
+  }
   try {
     fs.mkdirSync(path.dirname(calendarFile), { recursive: true });
     fs.writeFileSync(calendarFile, JSON.stringify({ events: calendarEvents }, null, 2), "utf8");
@@ -653,6 +711,31 @@ function broadcastCalendar() {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("calendar:changed", { events });
   }
+}
+
+function broadcastAppView(view) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("app:view", view);
+  }
+  return { ok: true, view };
+}
+
+function calendarWeek(referenceValue) {
+  const reference = referenceValue ? new Date(referenceValue) : new Date();
+  const base = Number.isNaN(reference.getTime()) ? new Date() : reference;
+  const mondayOffset = (base.getDay() + 6) % 7;
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate() - mondayOffset);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+  return { start, end };
+}
+
+function weekCalendarEvents(referenceValue) {
+  const { start, end } = calendarWeek(referenceValue);
+  const events = calendarSnapshot().filter((event) => {
+    const at = Date.parse(event.start);
+    return Number.isFinite(at) && at >= start.getTime() && at < end.getTime();
+  });
+  return { weekStart: start.toISOString(), weekEnd: end.toISOString(), events };
 }
 
 function clearCalendarTimer(id) {
@@ -1128,6 +1211,61 @@ function startPanelApi() {
       }
       return;
     }
+    if (pathname === "/view-calendar" && (request.method === "GET" || request.method === "POST")) {
+      sendPanelJson(response, 200, broadcastAppView("calendar"));
+      return;
+    }
+
+    if (pathname === "/view-jarvis" && (request.method === "GET" || request.method === "POST")) {
+      sendPanelJson(response, 200, broadcastAppView("jarvis"));
+      return;
+    }
+
+    if (pathname === "/view-panels" && (request.method === "GET" || request.method === "POST")) {
+      sendPanelJson(response, 200, broadcastAppView("panels"));
+      return;
+    }
+
+    if (pathname === "/week-events" && request.method === "GET") {
+      const url = new URL(request.url, "http://127.0.0.1");
+      sendPanelJson(response, 200, { object: "list", ...weekCalendarEvents(url.searchParams.get("date")) });
+      return;
+    }
+
+    if (pathname === "/new-event" && request.method === "POST") {
+      try {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          sendPanelJson(response, 400, { error: "Se esperaba un objeto JSON." });
+          return;
+        }
+        const event = createCalendarEvent(body);
+        broadcastAppView("calendar");
+        sendPanelJson(response, 201, event);
+      } catch (error) {
+        sendPanelJson(response, 400, { error: error.message || "Evento no válido." });
+      }
+      return;
+    }
+
+    if ((pathname === "/delete-event" || pathname.startsWith("/delete-event/")) && request.method === "POST") {
+      try {
+        const body = pathname.startsWith("/delete-event/") ? {} : await readJsonBody(request);
+        const id = decodeURIComponent(
+          pathname.startsWith("/delete-event/") ? pathname.slice("/delete-event/".length) : String(body?.id ?? body?.eventId ?? ""),
+        );
+        if (!id) {
+          sendPanelJson(response, 400, { error: "Falta el id del evento." });
+          return;
+        }
+        const deleted = deleteCalendarEvent(id);
+        sendPanelJson(response, deleted ? 200 : 404, { ok: deleted, id });
+      } catch (error) {
+        sendPanelJson(response, 400, { error: error.message || "No se pudo borrar el evento." });
+      }
+      return;
+    }
+
     if (pathname === "/events" && request.method === "GET") {
       sendPanelJson(response, 200, { object: "list", events: calendarSnapshot() });
       return;
@@ -1165,7 +1303,8 @@ function startPanelApi() {
         return;
       }
       if (request.method === "DELETE") {
-        sendPanelJson(response, deleteCalendarEvent(id) ? 200 : 404, { ok: deleteCalendarEvent(id) });
+        const deleted = deleteCalendarEvent(id);
+        sendPanelJson(response, deleted ? 200 : 404, { ok: deleted, id });
         return;
       }
     }

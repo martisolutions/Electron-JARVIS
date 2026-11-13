@@ -3,12 +3,12 @@ import { AgentChatModal } from "./components/AgentChatModal";
 import { Clock } from "./components/Clock";
 import { AgentEditor } from "./components/AgentEditor";
 import { Board } from "./components/Board";
-import { CalendarPanel } from "./components/CalendarPanel";
+import { CalendarScreen } from "./components/CalendarScreen";
 import { LogsPanel } from "./components/LogsPanel";
 import { NodeWords } from "./components/NodeWords";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { AttachmentIcon, BoardIcon, CalendarIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AttachmentIcon, BoardIcon, CalendarIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, SparkIcon, StopIcon } from "./components/Icons";
 import { AudioEngine } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
@@ -22,6 +22,7 @@ import type { AgentCard, BillingSnapshot, CalendarAlert, ConnectionState, NodeWo
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
 type ButtonMode = "hold" | "latched";
+type AppView = "jarvis" | "calendar" | "panels";
 
 type NodeBridge = {
   listNodeWords?: () => Promise<{ words?: NodeWord[]; capacity?: number }>;
@@ -192,8 +193,6 @@ export default function App() {
   const partial = useStore((state) => state.partial);
   const settingsOpen = useStore((state) => state.settingsOpen);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
-  const boardOpen = useStore((state) => state.boardOpen);
-  const setBoardOpen = useStore((state) => state.setBoardOpen);
   const agentChat = useStore((state) => state.agentChat);
   const agents = useStore((state) => state.agents);
 
@@ -239,7 +238,7 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [logsOpen, setLogsOpen] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [activeView, setActiveView] = useState<AppView>("jarvis");
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [billing, setBilling] = useState<BillingSnapshot | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
@@ -308,10 +307,23 @@ export default function App() {
   }, [partial]);
 
   useEffect(() => {
-    const bridge = (window as unknown as { jarvisDesktop?: { onPanelOpen?: (callback: () => void) => () => void } })
-      .jarvisDesktop;
-    if (!bridge?.onPanelOpen) return;
-    return bridge.onPanelOpen(() => useStore.getState().setBoardOpen(true));
+    const bridge = (
+      window as unknown as {
+        jarvisDesktop?: {
+          onPanelOpen?: (callback: () => void) => () => void;
+          onAppView?: (callback: (view: AppView) => void) => () => void;
+        };
+      }
+    ).jarvisDesktop;
+    if (!bridge) return;
+    const offPanel = bridge.onPanelOpen?.(() => setActiveView("panels"));
+    const offView = bridge.onAppView?.((view) => {
+      if (view === "calendar" || view === "panels" || view === "jarvis") setActiveView(view);
+    });
+    return () => {
+      offPanel?.();
+      offView?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -1673,7 +1685,7 @@ export default function App() {
         : "MantÃƒÂ©n para hablar";
 
   return (
-    <div className="app hud-app" data-state={orb}>
+    <div className="app hud-app" data-state={orb} data-view={activeView}>
       <header className="hud-header">
         <div className="hud-brand">
           <span>J.A.R.V.I.S.</span>
@@ -1688,9 +1700,6 @@ export default function App() {
           <span className="hud-uptime-wrap">
             <i /> ONLINE Â· T+<HudUptime metrics={metrics} />
           </span>
-          <button type="button" className="icon-btn calendar-btn" onClick={() => setCalendarOpen(true)} aria-label="Calendario" title="Calendario">
-            <CalendarIcon />
-          </button>
           <button
             type="button"
             className={`icon-btn stop-everything ${anyRunning || busy ? "is-active" : ""}`}
@@ -1703,17 +1712,32 @@ export default function App() {
           <button type="button" className="icon-btn logs-btn" onClick={() => setLogsOpen(true)} aria-label="Logs de agentes" title="Logs de agentes">
             <LogsIcon />
           </button>
-          <button type="button" className="icon-btn board-btn" onClick={() => setBoardOpen(true)} aria-label="Tablero" title="Tablero">
-            <BoardIcon />
-          </button>
           <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Ajustes" title="Ajustes">
             <SettingsIcon />
           </button>
         </div>
       </header>
 
+      <nav className="hud-view-nav" aria-label="Vistas principales">
+        <button type="button" className={activeView === "calendar" ? "view-tab is-active" : "view-tab"} onClick={() => setActiveView("calendar")} aria-current={activeView === "calendar" ? "page" : undefined}>
+          <CalendarIcon />
+          <span>CALENDARIO</span>
+        </button>
+        <button type="button" className={activeView === "jarvis" ? "view-tab view-tab-core is-active" : "view-tab view-tab-core"} onClick={() => setActiveView("jarvis")} aria-current={activeView === "jarvis" ? "page" : undefined}>
+          <SparkIcon size={22} />
+          <span>JARVIS</span>
+          <small>CORE</small>
+        </button>
+        <button type="button" className={activeView === "panels" ? "view-tab is-active" : "view-tab"} onClick={() => setActiveView("panels")} aria-current={activeView === "panels" ? "page" : undefined}>
+          <BoardIcon />
+          <span>PANELES</span>
+        </button>
+      </nav>
+
       <main className="hud-main">
-        <HudLeftPanels metrics={metrics} />
+        {activeView === "jarvis" ? <HudLeftPanels metrics={metrics} /> : null}
+        {activeView === "calendar" ? <CalendarScreen /> : null}
+        {activeView === "panels" ? <Board embedded onClose={() => setActiveView("jarvis")} /> : null}
         <section className="hud-stage" aria-live="polite">
           <HudOrb load={metrics?.cpu ?? 0} mode={orbVisualState} visual={orbVisual} level={() => audioRef.current?.getLevels().level ?? 0} satellites={satelliteAgents} delegationPulse={delegationPulse} onZoom={setNodeZoom} />
           <NodeWords words={nodeWords} zoom={nodeZoom} capacity={nodeCapacity} mode={orbVisualState} color={orbVisual.color} />
@@ -1726,11 +1750,9 @@ export default function App() {
           ) : null}
           {notice ? <div className="hud-notice">{notice}</div> : null}
         </section>
-        <HudRightPanels metrics={metrics} billing={billing} />
+        {activeView === "jarvis" ? <HudRightPanels metrics={metrics} billing={billing} /> : null}
       </main>
 
-      {calendarOpen ? <CalendarPanel onClose={() => setCalendarOpen(false)} /> : null}
-      {boardOpen ? <Board /> : null}
       {logsOpen ? <LogsPanel onClose={() => setLogsOpen(false)} /> : null}
       {agentChat ? <AgentChatModal /> : null}
       <AgentEditor />

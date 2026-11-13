@@ -45,11 +45,15 @@ function blankEditor(): EditorState {
   };
 }
 
-export function Board() {
+export function Board({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void } = {}) {
   const setBoardOpen = useStore((state) => state.setBoardOpen);
   const [state, setState] = useState<PanelState>({ panels: [], openIds: [] });
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [error, setError] = useState("");
+  const closeBoard = () => {
+    setBoardOpen(false);
+    onClose?.();
+  };
 
   useEffect(() => {
     const api = getBridge();
@@ -87,7 +91,7 @@ export function Board() {
     };
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
-  }, [editor, setBoardOpen]);
+  }, [editor, setBoardOpen, closeBoard]);
 
   const openPanels = state.openIds
     .map((id) => state.panels.find((panel) => panel.id === id))
@@ -140,7 +144,7 @@ export function Board() {
   }
 
   return (
-    <div className="board-overlay" role="dialog" aria-modal="true" aria-label="Tablero de JARVIS">
+    <div className={`board-overlay${embedded ? " board-screen" : ""}`} role="dialog" aria-modal="true" aria-label="Tablero de JARVIS">
       <header className="board-head">
         <div>
           <span className="eyebrow">TABLERO</span>
@@ -154,7 +158,7 @@ export function Board() {
           <button
             type="button"
             className="board-close"
-            onClick={() => setBoardOpen(false)}
+            onClick={closeBoard}
             aria-label="Cerrar tablero"
           >
             <CloseIcon />

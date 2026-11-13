@@ -64,6 +64,19 @@ export function loadSettings(): Settings {
     if (calendarDefault && !agentConfigs.some((agent) => agent.id === "calendar")) {
       agentConfigs.push({ ...calendarDefault });
     }
+    if (calendarDefault) {
+      for (const agent of agentConfigs) {
+        if (
+          agent.id === "calendar" &&
+          agent.builtin &&
+          /GET \/events/.test(agent.instructions) &&
+          !/view-calendar/.test(agent.instructions)
+        ) {
+          agent.instructions = calendarDefault.instructions;
+          agent.role = calendarDefault.role;
+        }
+      }
+    }
     const visionDefault = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === "vision");
     if (visionDefault) {
       for (const agent of agentConfigs) {
