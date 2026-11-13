@@ -578,6 +578,125 @@ function addNodeWord(input) {
   broadcastNodeWords();
   return entry;
 }
+const ARTIFACT_EXTENSIONS = new Set([".ics", ".ical", ".lnk", ".url"]);
+let artifactSeenFile = "";
+let artifactSeen = {};
+let registeredArtifacts = new Map();
+
+function initArtifactStore() {
+  if (!artifactSeenFile) artifactSeenFile = path.join(app.getPath("userData"), "artifacts-seen.json");
+  try {
+    const raw = JSON.parse(fs.readFileSync(artifactSeenFile, "utf8"));
+    artifactSeen = raw && typeof raw === "object" ? raw : {};
+  } catch {
+    artifactSeen = {};
+  }
+  try {
+    const catalog = JSON.parse(fs.readFileSync(path.join(app.getPath("userData"), "artifacts.json"), "utf8"));
+    const paths = Array.isArray(catalog?.paths) ? catalog.paths : [];
+    registeredArtifacts = new Map(paths.filter((entry) => typeof entry === "string").map((entry) => [entry, true]));
+  } catch {
+    registeredArtifacts = new Map();
+  }
+}
+
+function saveArtifactSeen() {
+  try {
+    fs.mkdirSync(path.dirname(artifactSeenFile), { recursive: true });
+    fs.writeFileSync(artifactSeenFile, JSON.stringify(artifactSeen, null, 2), "utf8");
+  } catch {
+    /* best effort */
+  }
+}
+
+function artifactKind(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  return extension === ".ics" || extension === ".ical" ? "calendar" : "shortcut";
+}
+
+function artifactSnapshot() {
+  initArtifactStore();
+  const paths = new Map();
+  const addPath = (filePath) => {
+    if (typeof filePath !== "string" || !filePath.trim()) return;
+    paths.set(path.resolve(filePath), true);
+  };
+  for (const filePath of registeredArtifacts.keys()) addPath(filePath);
+
+  const folders = [
+    path.join(os.homedir(), "Desktop"),
+    path.join(os.homedir(), "Downloads"),
+    path.join(os.homedir(), "Documents"),
+    path.join(app.getPath("userData"), "artifacts"),
+  ];
+  for (const folder of folders) {
+    try {
+      for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+        if (entry.isFile() && ARTIFACT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+          addPath(path.join(folder, entry.name));
+        }
+      }
+    } catch {
+      /* folder may not exist */
+    }
+  }
+
+  const artifacts = [];
+  for (const filePath of paths.keys()) {
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) continue;
+      const extension = path.extname(filePath).toLowerCase();
+      if (!ARTIFACT_EXTENSIONS.has(extension)) continue;
+      const seenAt = Number(artifactSeen[filePath]) || 0;
+      artifacts.push({
+        id: filePath,
+        path: filePath,
+        name: path.basename(filePath),
+        kind: artifactKind(filePath),
+        extension,
+        mtime: stat.mtimeMs,
+        unseen: stat.mtimeMs > seenAt,
+      });
+    } catch {
+      /* missing file */
+    }
+  }
+  artifacts.sort((left, right) => right.mtime - left.mtime);
+  return { artifacts: artifacts.slice(0, 40), unseen: artifacts.filter((item) => item.unseen).length };
+}
+
+function markArtifactSeen(id) {
+  initArtifactStore();
+  const item = artifactSnapshot().artifacts.find((entry) => entry.id === id);
+  if (!item) return artifactSnapshot();
+  artifactSeen[id] = item.mtime;
+  saveArtifactSeen();
+  return artifactSnapshot();
+}
+
+function findArtifact(id) {
+  return artifactSnapshot().artifacts.find((entry) => entry.id === id) || null;
+}
+
+ipcMain.handle("artifacts:list", () => artifactSnapshot());
+ipcMain.handle("artifacts:seen", (_event, id) => markArtifactSeen(String(id || "")));
+ipcMain.handle("artifacts:open", async (_event, id) => {
+  const item = findArtifact(String(id || ""));
+  if (!item) return false;
+  try {
+    await shell.openPath(item.path);
+    return true;
+  } catch {
+    return false;
+  }
+});
+ipcMain.handle("artifacts:reveal", (_event, id) => {
+  const item = findArtifact(String(id || ""));
+  if (!item) return false;
+  shell.showItemInFolder(item.path);
+  return true;
+});
 let panels = [];
 let openPanelIds = new Set();
 let panelStoreFile = "";

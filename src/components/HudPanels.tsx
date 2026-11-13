@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
+import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EditIcon, PlusIcon } from "./Icons";
 import type { BillingSnapshot, SystemMetrics } from "../types";
 
@@ -49,7 +50,7 @@ export function HudLeftPanels({ metrics }: Props) {
         </div>
       </section>
 
-      <section className="hud-panel hud-panel-grow">
+      <section className="hud-panel">
         <div className="hud-panel-head">
           <span>MEMORY</span>
           <strong>{metrics ? `${metrics.ramTotal.toFixed(0)} GB` : "—"}</strong>
@@ -80,6 +81,7 @@ export function HudLeftPanels({ metrics }: Props) {
           </div>
         </div>
       </section>
+      <ArtifactsPanel />
     </div>
   );
 }

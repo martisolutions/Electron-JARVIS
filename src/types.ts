@@ -107,6 +107,20 @@ export type SystemMetrics = {
   diskWrite: number;
   uptime: number;
 };
+export type ArtifactItem = {
+  id: string;
+  path: string;
+  name: string;
+  kind: "calendar" | "shortcut";
+  extension: string;
+  mtime: number;
+  unseen: boolean;
+};
+
+export type ArtifactSnapshot = {
+  artifacts: ArtifactItem[];
+  unseen: number;
+};
 export type PanelKind = "code" | "diagram" | "text" | "markdown";
 
 export type JarvisPanel = {
