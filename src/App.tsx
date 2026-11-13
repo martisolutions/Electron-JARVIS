@@ -258,7 +258,7 @@ export default function App() {
   const busy = orb === "thinking" || orb === "speaking";
   const anyRunning = Object.values(agents).some((agent) => agent.status === "running");
   const anySubagentRunning = Object.values(agents).some((agent) => agent.id !== "jarvis" && agent.status === "running");
-  const orbActivity = orb === "speaking" ? "speaking" : anySubagentRunning ? "acting" : orb === "thinking" ? "thinking" : "idle";
+  const orbActivity = orb === "speaking" ? "speaking" : orb === "thinking" ? "thinking" : anySubagentRunning ? "acting" : "idle";
   const satelliteAgents = useMemo(() => {
     const list = Object.values(agents).filter((agent) => agent.id !== "jarvis" && agent.status === "running");
     const openAgent = agentChat ? agents[agentChat] : null;
