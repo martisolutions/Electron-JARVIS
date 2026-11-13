@@ -49,6 +49,7 @@ export function loadSettings(): Settings {
           /navegador Chrome visible|Solo VISI[^ ]+ abre Google Chrome/i.test(agent.instructions)
         ) {
           agent.instructions = visionDefault.instructions;
+          agent.role = visionDefault.role;
         }
       }
     }
