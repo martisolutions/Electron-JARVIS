@@ -5,7 +5,7 @@ import { AgentsPanel } from "./components/AgentsPanel";
 import { Board } from "./components/Board";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { BoardIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AttachmentIcon, BoardIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
 import { AudioEngine, ZERO_LEVELS } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
@@ -18,6 +18,16 @@ import type { AgentCard, ConnectionState } from "./types";
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
 type ButtonMode = "hold" | "latched";
+
+type FilesBridge = {
+  jarvisDesktop?: {
+    pickFiles?: () => Promise<string[]>;
+  };
+};
+
+function fileNameFromPath(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || filePath;
+}
 
 const STATUS_LABEL: Record<ConnectionState, string> = {
   idle: "EN ESPERA",
@@ -221,6 +231,8 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const attachmentsRef = useRef<string[]>([]);
   const [notice, setNotice] = useState("");
   const [recording, setRecording] = useState(false);
   const [recordingMode, setRecordingMode] = useState<ButtonMode | null>(null);
@@ -781,8 +793,9 @@ export default function App() {
   }
 
   async function sendMessage(raw: string): Promise<void> {
-    const text = raw.trim();
-    if (!text) return;
+    let text = raw.trim();
+    const files = attachmentsRef.current;
+    if (!text && files.length === 0) return;
 
     const client = hermesRef.current;
     const live = useStore.getState();
@@ -790,6 +803,15 @@ export default function App() {
       addSystem("Conecta JARVIS primero.");
       return;
     }
+
+    if (files.length > 0) {
+      text = `${text || "Analiza los archivos adjuntos."}\n\nArchivos adjuntos:\n${files
+        .map((file) => `- ${file}`)
+        .join("\n")}`;
+      attachmentsRef.current = [];
+      setAttachments([]);
+    }
+    if (!text) return;
 
     void audioRef.current?.ensure().catch(() => undefined);
     speechSeq.current += 1;
@@ -1457,6 +1479,30 @@ export default function App() {
     }
   }
 
+  function setAttachmentList(next: string[]): void {
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }
+
+  async function pickAttachments(): Promise<void> {
+    const bridge = (window as unknown as FilesBridge).jarvisDesktop;
+    if (!bridge?.pickFiles) {
+      notify("Los archivos adjuntos solo están disponibles en la app de escritorio.");
+      return;
+    }
+    try {
+      const picked = await bridge.pickFiles();
+      if (picked.length === 0) return;
+      setAttachmentList([...new Set([...attachmentsRef.current, ...picked])]);
+    } catch {
+      notify("No se pudieron adjuntar los archivos.");
+    }
+  }
+
+  function removeAttachment(filePath: string): void {
+    setAttachmentList(attachmentsRef.current.filter((path) => path !== filePath));
+  }
+
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
     const text = input;
@@ -1548,7 +1594,24 @@ export default function App() {
           </div>
         ) : null}
 
-        <form className="composer" onSubmit={handleSubmit}>
+        {attachments.length > 0 ? (
+          <div className="attachment-row">
+            {attachments.map((filePath) => (
+              <span className="attachment-chip" key={filePath} title={filePath}>
+                <span>{fileNameFromPath(filePath)}</span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(filePath)}
+                  aria-label={`Quitar ${fileNameFromPath(filePath)}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="voice-controls">
           <button
             type="button"
             className={`round-btn mic ${recording ? "is-active" : ""}`}
@@ -1563,7 +1626,19 @@ export default function App() {
           >
             <MicIcon />
           </button>
+          <button
+            type="button"
+            className="round-btn clip"
+            onClick={() => void pickAttachments()}
+            disabled={!connected}
+            aria-label="Adjuntar archivos"
+            title="Adjuntar archivos"
+          >
+            <AttachmentIcon />
+          </button>
+        </div>
 
+        <form className="composer" onSubmit={handleSubmit}>
           <input
             className="composer-input"
             value={input}
@@ -1583,7 +1658,7 @@ export default function App() {
             <button
               type="submit"
               className="round-btn send"
-              disabled={!connected || !input.trim() || recording || transcribing}
+              disabled={!connected || (!input.trim() && attachments.length === 0) || recording || transcribing}
               aria-label="Enviar"
             >
               <SendIcon />

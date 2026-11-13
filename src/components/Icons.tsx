@@ -37,6 +37,14 @@ export function StopIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function AttachmentIcon({ size = 18 }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8.8 12.6l6.1-6.1a3 3 0 1 1 4.2 4.2l-7.7 7.7a5 5 0 1 1-7.1-7.1l7.3-7.3" />
+    </svg>
+  );
+}
+
 export function CloseIcon({ size = 18 }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">

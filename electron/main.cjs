@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell, Notification } = require("electron");
+﻿const { app, BrowserWindow, ipcMain, session, shell, Notification, dialog } = require("electron");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -51,7 +51,7 @@ $candidates = @(
 )
 $cfg = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $cfg) {
-  [pscustomobject]@{ found = $false; error = 'No se encontró config.yaml de Hermes.' } | ConvertTo-Json -Compress
+  [pscustomobject]@{ found = $false; error = 'No se encontrÃ³ config.yaml de Hermes.' } | ConvertTo-Json -Compress
   exit 0
 }
 $lines = Get-Content -LiteralPath $cfg
@@ -74,7 +74,7 @@ foreach ($line in $platforms) {
   }
 }
 if (-not $inApi) {
-  [pscustomobject]@{ found = $false; configPath = $cfg; error = 'No se encontró platforms.api_server en config.yaml.' } | ConvertTo-Json -Compress
+  [pscustomobject]@{ found = $false; configPath = $cfg; error = 'No se encontrÃ³ platforms.api_server en config.yaml.' } | ConvertTo-Json -Compress
   exit 0
 }
 function CleanValue([string]$value) {
@@ -112,7 +112,7 @@ if ($key -match '^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$') {
 
 async function detectLocalHermes() {
   if (process.platform !== "win32") {
-    return { found: false, error: "La detección automática está disponible en Windows." };
+    return { found: false, error: "La detecciÃ³n automÃ¡tica estÃ¡ disponible en Windows." };
   }
   try {
     const { stdout } = await execFileAsync(
@@ -136,7 +136,7 @@ async function detectLocalHermes() {
   } catch (error) {
     return {
       found: false,
-      error: `No se pudo leer la configuración de Hermes: ${error instanceof Error ? error.message : String(error)}`,
+      error: `No se pudo leer la configuraciÃ³n de Hermes: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -172,6 +172,13 @@ async function stopAllHermesAgents() {
 
 ipcMain.handle("hermes:stop-all", () => stopAllHermesAgents());
 ipcMain.handle("hermes:detect-local", () => detectLocalHermes());
+ipcMain.handle("files:pick", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Adjuntar archivos a JARVIS",
+    properties: ["openFile", "multiSelections"],
+  });
+  return result.canceled ? [] : result.filePaths;
+});
 
 
 ipcMain.handle("hermes:read-log", async (_event, filePath) => {
@@ -455,7 +462,7 @@ function readJsonBody(request) {
       try {
         resolve(JSON.parse(body));
       } catch {
-        reject(new Error("JSON no válido."));
+        reject(new Error("JSON no vÃ¡lido."));
       }
     });
     request.on("error", reject);
@@ -510,7 +517,7 @@ function startPanelApi() {
         }
         sendPanelJson(response, 201, scheduleReminder(body));
       } catch (error) {
-        sendPanelJson(response, 400, { error: error.message || "Recordatorio no válido." });
+        sendPanelJson(response, 400, { error: error.message || "Recordatorio no vÃ¡lido." });
       }
       return;
     }
@@ -543,7 +550,7 @@ function startPanelApi() {
         }
         sendPanelJson(response, 201, createPanel(body, "jarvis"));
       } catch (error) {
-        sendPanelJson(response, 400, { error: error.message || "Solicitud no válida." });
+        sendPanelJson(response, 400, { error: error.message || "Solicitud no vÃ¡lida." });
       }
       return;
     }
@@ -581,7 +588,7 @@ function startPanelApi() {
         }
         sendPanelJson(response, 200, updatePanelById(id, body));
       } catch (error) {
-        sendPanelJson(response, 400, { error: error.message || "Solicitud no válida." });
+        sendPanelJson(response, 400, { error: error.message || "Solicitud no vÃ¡lida." });
       }
       return;
     }
@@ -593,7 +600,7 @@ function startPanelApi() {
       return;
     }
 
-    sendPanelJson(response, 405, { error: "Método no permitido." });
+    sendPanelJson(response, 405, { error: "MÃ©todo no permitido." });
   });
 
   panelApiServer.on("error", (error) => {
@@ -868,3 +875,4 @@ if (!gotTheLock) {
     if (process.platform !== "darwin") app.quit();
   });
 }
+
