@@ -17,7 +17,7 @@ import { errorMessage, friendlyError, sanitizeForSpeech } from "./lib/text";
 import { HudOrb } from "./components/HudOrb";
 import { HudLeftPanels, HudRightPanels, HudUptime } from "./components/HudPanels";
 import { useStore } from "./store";
-import type { AgentCard, ConnectionState, NodeWord, SystemMetrics } from "./types";
+import type { AgentCard, ConnectionState, NodeWord, OrbVisualState, SystemMetrics } from "./types";
 
 type RecorderPhase = "idle" | "starting" | "recording" | "transcribing";
 type RecordSource = "space" | "button";
@@ -243,6 +243,7 @@ export default function App() {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
   const [nodeCapacity, setNodeCapacity] = useState(18);
+  const [delegationPulse, setDelegationPulse] = useState(0);
   const [nodeZoom, setNodeZoom] = useState(1);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -261,7 +262,14 @@ export default function App() {
   const busy = orb === "thinking" || orb === "speaking";
   const anyRunning = Object.values(agents).some((agent) => agent.status === "running");
   const anySubagentRunning = Object.values(agents).some((agent) => agent.id !== "jarvis" && agent.status === "running");
-  const orbActivity = orb === "speaking" ? "speaking" : orb === "thinking" ? "thinking" : anySubagentRunning ? "acting" : "idle";
+  const orbVisualState: OrbVisualState = anySubagentRunning
+    ? "delegated"
+    : orb === "speaking"
+      ? "talking"
+      : orb === "thinking"
+        ? "thinking"
+        : "idle";
+  const orbVisual = settings.orbStates[orbVisualState];
   const satelliteAgents = useMemo(() => {
     const list = Object.values(agents).filter((agent) => agent.id !== "jarvis" && agent.status === "running");
     const openAgent = agentChat ? agents[agentChat] : null;
@@ -1107,6 +1115,7 @@ export default function App() {
           `${target.name} Ãƒâ€ÃƒÂ¥Ãƒâ€  JARVIS: ${truncateText(asString(event.summary) || asString(event.output_tail) || "completado", 90)}`,
         );
         store.logActivity(target.id, status === "completed" ? "info" : "error", asString(event.summary) || asString(event.output_tail) || status || "completado");
+        setDelegationPulse((value) => value + 1);
         void fetchChildSessionCost(asString(event.child_session_id) || asString(event.subagent_session_id));
         break;
       }
@@ -1671,8 +1680,8 @@ export default function App() {
       <main className="hud-main">
         <HudLeftPanels metrics={metrics} />
         <section className="hud-stage" aria-live="polite">
-          <HudOrb load={metrics?.cpu ?? 0} mode={orbActivity} satellites={satelliteAgents} onZoom={setNodeZoom} />
-          <NodeWords words={nodeWords} zoom={nodeZoom} capacity={nodeCapacity} mode={orbActivity} />
+          <HudOrb load={metrics?.cpu ?? 0} mode={orbVisualState} visual={orbVisual} level={() => audioRef.current?.getLevels().level ?? 0} satellites={satelliteAgents} delegationPulse={delegationPulse} onZoom={setNodeZoom} />
+          <NodeWords words={nodeWords} zoom={nodeZoom} capacity={nodeCapacity} mode={orbVisualState} color={orbVisual.color} />
           <div className="hud-core-caption">CORE STABLE Â· {metrics ? metrics.freq.toFixed(2) : "â€”"} GHZ</div>
           {caption ? (
             <div className="hud-caption">

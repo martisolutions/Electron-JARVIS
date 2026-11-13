@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_CONFIGS, normalizeAgentConfigs } from "./agents";
-import type { AgentConfig } from "../types";
+import type { AgentConfig, OrbVisualConfig, OrbVisualState } from "../types";
 
 export type Settings = {
   hermesUrl: string;
@@ -12,6 +12,7 @@ export type Settings = {
   autoSpeak: boolean;
   onboarded: boolean;
   agentConfigs: AgentConfig[];
+  orbStates: Record<OrbVisualState, OrbVisualConfig>;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,10 +26,29 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSpeak: true,
   onboarded: false,
   agentConfigs: DEFAULT_AGENT_CONFIGS.map((agent) => ({ ...agent })),
+  orbStates: {
+    idle: { color: "#ff9a1f", expansion: 1 },
+    thinking: { color: "#b47cff", expansion: 1.28 },
+    talking: { color: "#4fe3ff", expansion: 1.12 },
+    delegated: { color: "#ff4f7a", expansion: 1.22 },
+  },
 };
 
 const STORAGE_KEY = "jarvis.settings.v2";
 
+function normalizeOrbStates(value: unknown): Record<OrbVisualState, OrbVisualConfig> {
+  const fallback = DEFAULT_SETTINGS.orbStates;
+  if (!value || typeof value !== "object") return { ...fallback };
+  const source = value as Partial<Record<OrbVisualState, Partial<OrbVisualConfig>>>;
+  const result = {} as Record<OrbVisualState, OrbVisualConfig>;
+  for (const key of Object.keys(fallback) as OrbVisualState[]) {
+    const entry = source[key];
+    const color = typeof entry?.color === "string" && /^#[0-9a-f]{6}$/i.test(entry.color) ? entry.color : fallback[key].color;
+    const expansion = typeof entry?.expansion === "number" ? Math.max(0.7, Math.min(1.8, entry.expansion)) : fallback[key].expansion;
+    result[key] = { color, expansion };
+  }
+  return result;
+}
 function str(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
@@ -73,6 +93,7 @@ export function loadSettings(): Settings {
           ? parsed.onboarded
           : Boolean(str(parsed.hermesKey, "").trim()),
       agentConfigs,
+      orbStates: normalizeOrbStates(parsed.orbStates),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

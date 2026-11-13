@@ -3295,3 +3295,59 @@ code,
     width: 94vw;
   }
 }
+.settings-orb {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(255, 154, 31, 0.18);
+  border-radius: 12px;
+  background: rgba(28, 14, 3, 0.32);
+}
+
+.orb-state-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.orb-state-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: #ffc15a;
+}
+
+.orb-state-title strong {
+  font-weight: 500;
+}
+
+.orb-state-title span {
+  color: rgba(255, 180, 90, 0.65);
+}
+
+.orb-state-controls {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.orb-state-controls input[type="color"] {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 154, 31, 0.35);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.orb-state-controls input[type="range"] {
+  width: 100%;
+  accent-color: #ff9a1f;
+}

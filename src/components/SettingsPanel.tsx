@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "../store";
-import type { ConnectionState } from "../types";
+import type { ConnectionState, OrbVisualState } from "../types";
 import { CloseIcon, PowerIcon, SparkIcon } from "./Icons";
 
 type Props = {
@@ -32,6 +32,13 @@ const STATUS_LABEL: Record<ConnectionState, string> = {
   connected: "JARVIS en línea",
   error: "Error de conexión",
 };
+
+const ORB_STATES: Array<{ id: OrbVisualState; label: string }> = [
+  { id: "idle", label: "IDLE" },
+  { id: "thinking", label: "THINKING" },
+  { id: "talking", label: "TALKING" },
+  { id: "delegated", label: "DELEGATED" },
+];
 
 export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice }: Props) {
   const settings = useStore((state) => state.settings);
@@ -77,6 +84,14 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
     }
   }
 
+  const updateOrbState = (state: OrbVisualState, patch: { color?: string; expansion?: number }): void => {
+    setSettings({
+      orbStates: {
+        ...settings.orbStates,
+        [state]: { ...settings.orbStates[state], ...patch },
+      },
+    });
+  };
   const apply = (): void => {
     setSettings({
       hermesUrl: hermesUrl.trim() || settings.hermesUrl,
@@ -190,6 +205,38 @@ export function SettingsPanel({ connection, onConnect, onDisconnect, onTestVoice
           <span className="toggle-track"><i /></span>
           <span className="toggle-label">Hablar automáticamente cada respuesta</span>
         </label>
+
+        <div className="settings-orb">
+          <span className="eyebrow">ESTADOS DEL ORBE</span>
+          {ORB_STATES.map((state) => {
+            const config = settings.orbStates[state.id];
+            return (
+              <div className="orb-state-row" key={state.id}>
+                <div className="orb-state-title">
+                  <strong>{state.label}</strong>
+                  <span>{config.expansion.toFixed(2)}×</span>
+                </div>
+                <div className="orb-state-controls">
+                  <input
+                    type="color"
+                    value={config.color}
+                    onChange={(event) => updateOrbState(state.id, { color: event.target.value })}
+                    aria-label={`Color de ${state.label}`}
+                  />
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.8"
+                    step="0.01"
+                    value={config.expansion}
+                    onChange={(event) => updateOrbState(state.id, { expansion: Number(event.target.value) })}
+                    aria-label={`Expansión de ${state.label}`}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
         <div className="settings-actions">
           <button

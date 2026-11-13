@@ -1,21 +1,22 @@
-import { useEffect, useState } from "react";
-import type { NodeWord } from "../types";
+import { useEffect, useState, type CSSProperties } from "react";
+import type { NodeWord, OrbVisualState } from "../types";
 
 type Props = {
   words: NodeWord[];
   zoom: number;
   capacity: number;
-  mode: "idle" | "thinking" | "acting" | "speaking";
+  mode: OrbVisualState;
+  color?: string;
 };
 
-export function NodeWords({ words, zoom, capacity, mode }: Props) {
+export function NodeWords({ words, zoom, capacity, mode, color }: Props) {
   const clampedZoom = Math.max(0.82, Math.min(1.55, zoom));
   const sharp = clampedZoom > 1.06;
   const visible = words.slice(0, Math.max(1, capacity));
   const [phase, setPhase] = useState(0);
 
   useEffect(() => {
-    const speed = mode === "acting" ? 0.07 : mode === "speaking" ? 0.045 : mode === "thinking" ? 0.028 : 0.016;
+    const speed = mode === "delegated" ? 0.07 : mode === "talking" ? 0.045 : mode === "thinking" ? 0.028 : 0.016;
     let frame = 0;
     let last = performance.now();
     const tick = (now: number): void => {
@@ -31,7 +32,7 @@ export function NodeWords({ words, zoom, capacity, mode }: Props) {
   return (
     <div
       className={`node-words mode-${mode}`}
-      style={{ transform: `translate(-50%, -50%) scale(${clampedZoom})` }}
+      style={{ transform: `translate(-50%, -50%) scale(${clampedZoom})`, "--node-tag": color, "--node-tag-strong": color } as CSSProperties}
       aria-hidden="true"
     >
       {visible.map((entry, index) => {

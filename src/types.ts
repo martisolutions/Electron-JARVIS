@@ -2,6 +2,12 @@ export type ConnectionState = "idle" | "connecting" | "connected" | "error";
 
 export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "error" | "connecting";
 
+export type OrbVisualState = "idle" | "thinking" | "talking" | "delegated";
+
+export type OrbVisualConfig = {
+  color: string;
+  expansion: number;
+};
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";

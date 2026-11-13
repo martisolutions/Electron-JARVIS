@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-type Mode = "idle" | "thinking" | "acting" | "speaking";
+type Mode = "idle" | "thinking" | "talking" | "delegated";
 
 type SatelliteInfo = {
   id: string;
@@ -12,7 +12,10 @@ type SatelliteInfo = {
 type Props = {
   load: number;
   mode: Mode;
+  visual: { color: string; expansion: number };
+  level: () => number;
   satellites: SatelliteInfo[];
+  delegationPulse: number;
   onZoom?: (zoom: number) => void;
 };
 
@@ -51,11 +54,14 @@ function makeLabelTexture(name: string, summary: string): THREE.CanvasTexture {
   return texture;
 }
 
-export function HudOrb({ load, mode, satellites, onZoom }: Props) {
+export function HudOrb({ load, mode, visual, level, satellites, delegationPulse, onZoom }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const loadRef = useRef(load);
   const modeRef = useRef(mode);
   const satellitesRef = useRef(satellites);
+  const visualRef = useRef(visual);
+  const levelRef = useRef(level);
+  const pulseRef = useRef(delegationPulse);
 
   useEffect(() => {
     loadRef.current = load;
@@ -66,6 +72,15 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
   useEffect(() => {
     satellitesRef.current = satellites;
   }, [satellites]);
+  useEffect(() => {
+    visualRef.current = visual;
+  }, [visual]);
+  useEffect(() => {
+    levelRef.current = level;
+  }, [level]);
+  useEffect(() => {
+    pulseRef.current = delegationPulse;
+  }, [delegationPulse]);
 
   useEffect(() => {
     const wrap = canvasRef.current?.parentElement;
@@ -81,6 +96,8 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
 
     const glowTexture = makeGlowTexture();
     const additive = THREE.AdditiveBlending;
+    const activeColor = new THREE.Color(visualRef.current.color);
+    const coloredMaterials: THREE.Material[] = [];
     const randomDirection = (): THREE.Vector3 => {
       const vector = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
       return vector.length() < 0.01 ? randomDirection() : vector.normalize();
@@ -89,15 +106,13 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
     const cloudCount = 2600;
     const cloudPositions = new Float32Array(cloudCount * 3);
     const cloudColors = new Float32Array(cloudCount * 3);
-    const colorA = new THREE.Color("#ff6a00");
-    const colorB = new THREE.Color("#ffd27a");
-    const scratch = new THREE.Color();
+
     for (let index = 0; index < cloudCount; index += 1) {
       const radius = index % 4 ? 2.1 + Math.random() * 0.5 : 0.55 + Math.random() * 1.5;
       const vector = randomDirection().multiplyScalar(radius);
       cloudPositions.set([vector.x, vector.y, vector.z], index * 3);
-      scratch.copy(colorA).lerp(colorB, Math.random());
-      cloudColors.set([scratch.r, scratch.g, scratch.b], index * 3);
+      const shade = 0.45 + Math.random() * 0.55;
+      cloudColors.set([shade, shade, shade], index * 3);
     }
     const cloudGeometry = new THREE.BufferGeometry();
     cloudGeometry.setAttribute("position", new THREE.BufferAttribute(cloudPositions, 3));
@@ -111,8 +126,10 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
         depthWrite: false,
         blending: additive,
         vertexColors: true,
+        color: activeColor,
       }),
     );
+    coloredMaterials.push(cloud.material as THREE.Material);
     orb.add(cloud);
 
     const streakCount = 520;
@@ -129,6 +146,7 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       streakGeometry,
       new THREE.LineBasicMaterial({ color: 0xffa826, transparent: true, opacity: 0.7, blending: additive, depthWrite: false }),
     );
+    coloredMaterials.push(streaks.material as THREE.Material);
     orb.add(streaks);
 
     const rings: Array<{ group: THREE.Group; speed: number; dot: THREE.Sprite; radius: number; angle: number }> = [];
@@ -153,19 +171,21 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
         }),
       );
       line.computeLineDistances();
+      coloredMaterials.push(line.material as THREE.Material);
       group.add(line);
       if (thick) {
-        group.add(
-          new THREE.Mesh(
-            new THREE.TorusGeometry(radius, 0.012, 8, 220),
-            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: additive }),
-          ),
+        const torus = new THREE.Mesh(
+          new THREE.TorusGeometry(radius, 0.012, 8, 220),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: additive }),
         );
+        coloredMaterials.push(torus.material as THREE.Material);
+        group.add(torus);
       }
       const dot = new THREE.Sprite(
         new THREE.SpriteMaterial({ map: glowTexture, blending: additive, transparent: true, depthWrite: false }),
       );
       dot.scale.setScalar(0.38);
+      coloredMaterials.push(dot.material as THREE.Material);
       group.add(dot);
       orb.add(group);
       rings.push({ group, speed, dot, radius, angle: Math.random() * 6.28 });
@@ -180,12 +200,14 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       new THREE.IcosahedronGeometry(0.42, 1),
       new THREE.MeshBasicMaterial({ color: 0xffd27a, wireframe: true, transparent: true, opacity: 0.9, blending: additive }),
     );
+    coloredMaterials.push(core.material as THREE.Material);
     orb.add(core);
     const glow = (spec: [number, number]): THREE.Sprite => {
       const sprite = new THREE.Sprite(
         new THREE.SpriteMaterial({ map: glowTexture, blending: additive, transparent: true, depthWrite: false, opacity: spec[1] }),
       );
       sprite.scale.setScalar(spec[0]);
+      coloredMaterials.push(sprite.material as THREE.Material);
       orb.add(sprite);
       return sprite;
     };
@@ -198,6 +220,7 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       mesh: THREE.Mesh;
       beam: THREE.Line;
       beamMaterial: THREE.LineBasicMaterial;
+      meshMaterial: THREE.MeshBasicMaterial;
       label: THREE.Sprite;
       labelMaterial: THREE.SpriteMaterial;
       labelTexture: THREE.CanvasTexture;
@@ -228,10 +251,13 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
         const beamGeometry = new THREE.BufferGeometry();
         beamGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
         const beam = new THREE.Line(beamGeometry, beamMaterial);
-        const mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.075, 12, 12),
-          new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, blending: additive, depthWrite: false }),
-        );
+        const meshMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffd27a,
+          transparent: true,
+          blending: additive,
+          depthWrite: false,
+        });
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 12), meshMaterial);
         const labelTexture = makeLabelTexture(agent.name, agent.summary);
         const labelMaterial = new THREE.SpriteMaterial({
           map: labelTexture,
@@ -246,6 +272,7 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
           mesh,
           beam,
           beamMaterial,
+          meshMaterial,
           label,
           labelMaterial,
           labelTexture,
@@ -255,6 +282,30 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       });
     };
     syncSatellites();
+    const burstBeamMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff9a1f,
+      transparent: true,
+      opacity: 0,
+      blending: additive,
+      depthWrite: false,
+    });
+    const burstBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.26, 1, 16, 1, true), burstBeamMaterial);
+    burstBeam.visible = false;
+    scene.add(burstBeam);
+    const burstRingMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff9a1f,
+      transparent: true,
+      opacity: 0,
+      blending: additive,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const burstRing = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 8, 64), burstRingMaterial);
+    burstRing.visible = false;
+    scene.add(burstRing);
+    let burstAge = -1;
+    let lastPulseValue = pulseRef.current;
+    const lastSatellitePosition = new THREE.Vector3(3.15, 0, 0);
 
     let rotationX = 0.35;
     let rotationY = 0;
@@ -314,7 +365,18 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       const time = clock.elapsedTime;
       const currentLoad = loadRef.current / 100;
       const currentMode = modeRef.current;
-      const speed = currentMode === "acting" ? 1.6 : currentMode === "speaking" ? 1.25 : currentMode === "thinking" ? 0.8 : 0.36;
+      const speed =
+        currentMode === "delegated" ? 0.75 : currentMode === "talking" ? 1.25 : currentMode === "thinking" ? 0.8 : 0.36;
+      const expansion = visualRef.current.expansion * (currentMode === "talking" ? 1 + levelRef.current() * 0.32 : 1);
+      const pulse = currentMode === "thinking" ? 1 + Math.sin(time * 1.8) * 0.035 : 1;
+      activeColor.set(visualRef.current.color);
+      coloredMaterials.forEach((material) => {
+        const tinted = material as THREE.Material & { color?: THREE.Color };
+        tinted.color?.copy(activeColor);
+      });
+      burstBeamMaterial.color.copy(activeColor);
+      burstRingMaterial.color.copy(activeColor);
+      orb.scale.setScalar(expansion * pulse);
       spin += delta * (0.18 + 0.5 * currentLoad) * speed;
       orb.rotation.set(rotationX, spin + rotationY, 0);
       cloud.scale.setScalar(1 + 0.025 * Math.sin(time * 2) + 0.05 * currentLoad);
@@ -331,6 +393,33 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
       });
       camera.position.z = 8.6 * Math.max(1, 1.05 / camera.aspect) / zoom;
 
+      if (pulseRef.current !== lastPulseValue) {
+        lastPulseValue = pulseRef.current;
+        const from = lastSatellitePosition.clone();
+        const direction = from.length() > 0.01 ? from.clone().normalize() : new THREE.Vector3(1, 0, 0);
+        burstBeam.position.copy(from).multiplyScalar(0.5);
+        burstBeam.scale.set(1, Math.max(0.5, from.length()), 1);
+        burstBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+        burstBeam.visible = true;
+        burstBeamMaterial.opacity = 0.9;
+        burstRing.position.set(0, 0, 0);
+        burstRing.scale.setScalar(1);
+        burstRing.visible = true;
+        burstRingMaterial.opacity = 0.85;
+        burstAge = 0;
+      }
+      if (burstAge >= 0) {
+        burstAge += delta;
+        const progress = Math.min(1, burstAge / 1.15);
+        burstBeamMaterial.opacity = (1 - progress) * 0.9;
+        burstRingMaterial.opacity = (1 - progress) * 0.85;
+        burstRing.scale.setScalar(1 + progress * 4.5);
+        if (progress >= 1) {
+          burstAge = -1;
+          burstBeam.visible = false;
+          burstRing.visible = false;
+        }
+      }
       const currentSignature = satellitesRef.current.map((agent) => `${agent.id}:${agent.summary}`).join("|");
       if (currentSignature !== satelliteSignature) {
         satelliteSignature = currentSignature;
@@ -344,6 +433,10 @@ export function HudOrb({ load, mode, satellites, onZoom }: Props) {
         const z = Math.sin(entry.angle) * radius;
         entry.mesh.position.set(x, y, z);
         entry.label.position.set(x, y + 0.3, z);
+        entry.meshMaterial.color.copy(activeColor);
+        entry.beamMaterial.color.copy(activeColor);
+        entry.labelMaterial.color.copy(activeColor);
+        lastSatellitePosition.set(x, y, z);
         const beamPositions = entry.beam.geometry.getAttribute("position") as THREE.BufferAttribute;
         beamPositions.setXYZ(0, 0, 0, 0);
         beamPositions.setXYZ(1, x, y, z);
