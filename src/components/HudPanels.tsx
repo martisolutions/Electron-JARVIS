@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useStore } from "../store";
+import { EditIcon, PlusIcon } from "./Icons";
 import type { BillingSnapshot, SystemMetrics } from "../types";
 
 type Props = {
@@ -82,6 +84,63 @@ export function HudLeftPanels({ metrics }: Props) {
   );
 }
 
+const AGENT_STATUS: Record<string, string> = {
+  idle: "EN ESPERA",
+  running: "TRABAJANDO",
+  done: "LISTO",
+  error: "ERROR",
+};
+
+function HudAgentsPanel() {
+  const agents = useStore((state) => state.agents);
+  const configs = useStore((state) => state.settings.agentConfigs);
+  const openAgentChat = useStore((state) => state.openAgentChat);
+  const openAgentEditor = useStore((state) => state.openAgentEditor);
+  const configured = configs.filter((config) => config.enabled).map((config) => config.id);
+  const cards = [
+    ...configured.map((id) => agents[id]).filter(Boolean),
+    ...Object.values(agents).filter((agent) => !configured.includes(agent.id)),
+  ];
+  const running = cards.filter((agent) => agent.status === "running").length;
+
+  return (
+    <section className="hud-panel hud-agents-panel">
+      <div className="hud-panel-head">
+        <span>AGENTS</span>
+        <div className="hud-agents-head-actions">
+          <strong>{running} activos</strong>
+          <button type="button" onClick={() => openAgentEditor("new")} aria-label="Crear agente" title="Crear agente">
+            <PlusIcon size={12} />
+          </button>
+          <button type="button" onClick={() => openAgentEditor(null)} aria-label="Editar agentes" title="Editar agentes">
+            <EditIcon size={12} />
+          </button>
+        </div>
+      </div>
+      <div className="hud-agents-list">
+        {cards.map((agent) => (
+          <div className={`hud-agent-row hud-agent-${agent.status}`} key={agent.id}>
+            <i />
+            <button type="button" className="hud-agent-main" onClick={() => openAgentChat(agent.id)}>
+              <span>{agent.name}</span>
+              <small>{agent.task || agent.lastOperation || agent.role}</small>
+            </button>
+            <b>{AGENT_STATUS[agent.status] ?? agent.status}</b>
+            <button
+              type="button"
+              className="hud-agent-edit"
+              onClick={() => openAgentEditor(agent.id)}
+              aria-label={`Editar ${agent.name}`}
+              title={`Editar ${agent.name}`}
+            >
+              <EditIcon size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 type RightProps = Props & { billing: BillingSnapshot | null };
 
 export function HudRightPanels({ metrics, billing }: RightProps) {
@@ -126,7 +185,7 @@ export function HudRightPanels({ metrics, billing }: RightProps) {
         </div>
       </section>
 
-      <section className="hud-panel hud-panel-grow">
+      <section className="hud-panel">
         <div className="hud-panel-head">
           <span>DISK I/O</span>
           <strong>NVMe</strong>
@@ -144,6 +203,7 @@ export function HudRightPanels({ metrics, billing }: RightProps) {
           <strong>{metrics ? `${metrics.diskWrite.toFixed(0)} MB/s` : "—"}</strong>
         </div>
       </section>
+      <HudAgentsPanel />
       <section className="hud-panel hud-billing">
         <div className="hud-panel-head">
           <span>CREDITS / BALANCE</span>

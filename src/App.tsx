@@ -2,13 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent
 import { AgentChatModal } from "./components/AgentChatModal";
 import { Clock } from "./components/Clock";
 import { AgentEditor } from "./components/AgentEditor";
-import { AgentsPanel } from "./components/AgentsPanel";
 import { Board } from "./components/Board";
 import { LogsPanel } from "./components/LogsPanel";
 import { NodeWords } from "./components/NodeWords";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { AttachmentIcon, BoardIcon, ChatIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
+import { AttachmentIcon, BoardIcon, LogsIcon, MicIcon, SendIcon, SettingsIcon, StopIcon } from "./components/Icons";
 import { AudioEngine } from "./lib/audio";
 import { agentTargetForGoal, buildSystemPrompt, delegationAck } from "./lib/agents";
 import { HermesClient, type RunEvent, type SessionMessage, type SessionRow } from "./lib/hermes";
@@ -239,7 +238,6 @@ export default function App() {
   const maxTimerRef = useRef<number | null>(null);
 
   const [logsOpen, setLogsOpen] = useState(false);
-  const [agentsOpen, setAgentsOpen] = useState(false);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [billing, setBilling] = useState<BillingSnapshot | null>(null);
   const [nodeWords, setNodeWords] = useState<NodeWord[]>([]);
@@ -1682,9 +1680,6 @@ export default function App() {
           >
             <StopIcon />
           </button>
-          <button type="button" className="icon-btn" onClick={() => setAgentsOpen((open) => !open)} aria-label="Agentes" title="Agentes">
-            <ChatIcon />
-          </button>
           <button type="button" className="icon-btn logs-btn" onClick={() => setLogsOpen(true)} aria-label="Logs de agentes" title="Logs de agentes">
             <LogsIcon />
           </button>
@@ -1714,7 +1709,6 @@ export default function App() {
         <HudRightPanels metrics={metrics} billing={billing} />
       </main>
 
-      {agentsOpen ? <AgentsPanel /> : null}
       {boardOpen ? <Board /> : null}
       {logsOpen ? <LogsPanel onClose={() => setLogsOpen(false)} /> : null}
       {agentChat ? <AgentChatModal /> : null}
