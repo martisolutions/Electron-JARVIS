@@ -361,8 +361,9 @@ export default function App() {
         return;
       }
       store.addMessage("assistant", display);
-      if (store.settings.autoSpeak) void speakText(display);
-      else store.setOrb("idle");
+      if (!hermesRef.current) hermesRef.current = new HermesClient(store.settings);
+      void audioRef.current?.ensure().catch(() => undefined);
+      void speakText(display);
     });
   }, []);
 
